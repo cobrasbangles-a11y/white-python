@@ -217,6 +217,12 @@ OS processes, so they can be positioned and closed independently, and you log
 into each site once and stay logged in — without cobra ever touching your normal
 browser profile. Closing kills the whole process group, so no renderers linger.
 
+Profiles are keyed per feed, and two feeds must never share one: Chromium routes
+every launch with the same `--user-data-dir` into a single process, which stacks
+both windows in the same spot. Built-in feeds use their plain names (so your
+logins survive upgrades); custom URLs get a digest of the full URL, so
+`youtube.com/shorts` and `youtube.com/@someone` stay separate.
+
 State is keyed by agent session id, so two Claude Code sessions in two terminals
 won't close each other's windows.
 
@@ -234,7 +240,7 @@ your terminal.
 ## Development
 
 ```sh
-npm test        # 55 tests, no dependencies, no network
+npm test        # 61 tests, no dependencies, no network
 COBRA_DEBUG=1 cobra open    # mirror the log to stderr
 COBRA_HOME=/tmp/cobra-scratch cobra open   # sandbox state and profiles
 ```
@@ -251,6 +257,11 @@ Built in phases, each one landed and tested:
 3. **Guard rails** — a time cap on a single stretch, and `cobra stats`.
 4. **Any agent** — `--idle` output watching, public `start`/`stop`, adapters.
 5. **CI** — tests on macOS, Linux and Windows across Node 18/20/22.
+
+Verified against a real X display, a real window manager and real Chromium:
+three windows opened at the computed geometry, the `phones` layout centered
+correctly, the hook lifecycle went armed → open → closed on a question, and
+close left no windows or processes behind.
 
 CI runs the suite on all three platforms because the display probes, process
 group kills and browser discovery are genuinely platform-specific, plus a smoke
