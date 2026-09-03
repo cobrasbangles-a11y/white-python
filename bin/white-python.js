@@ -328,7 +328,13 @@ async function main() {
 
       const screen = detectScreen(config);
       const where = screen.x || screen.y ? ` at ${screen.x},${screen.y}` : '';
-      process.stdout.write(`screen:  ${screen.width}x${screen.height}${where} (${screen.source})\n`);
+      const how = {
+        config: 'from your config',
+        display: 'detected, full display list',
+        detected: 'detected, single screen',
+        fallback: 'NOT DETECTED — guessed',
+      }[screen.source] || screen.source;
+      process.stdout.write(`screen:  ${screen.width}x${screen.height}${where} (${how})\n`);
       if (screen.source === 'fallback') {
         process.stdout.write('         ↳ detection failed; set it with: white-python config screen.width=2560 screen.height=1440\n');
       }

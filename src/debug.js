@@ -28,6 +28,18 @@ function safe(fn, fallback = 'ERROR') {
   }
 }
 
+// A file that simply isn't there yet is normal, not an error worth printing an
+// ENOENT for — this report is what people paste when asking for help, so its
+// absences should read as absences.
+function readOr(file, missing) {
+  try {
+    const text = fs.readFileSync(file, 'utf8').trim();
+    return text || missing;
+  } catch (err) {
+    return err.code === 'ENOENT' ? missing : `unreadable: ${err.message}`;
+  }
+}
+
 function debugReport() {
   const out = [];
 
@@ -45,8 +57,7 @@ function debugReport() {
   out.push('--- config ---');
   line(out, 'file', PATHS.config);
   line(out, 'exists', fs.existsSync(PATHS.config) ? 'yes' : 'no (using defaults)');
-  const raw = safe(() => fs.readFileSync(PATHS.config, 'utf8').trim(), '(unreadable)');
-  if (fs.existsSync(PATHS.config)) out.push(`raw:\n${raw}`);
+  if (fs.existsSync(PATHS.config)) out.push(`raw:\n${readOr(PATHS.config, '(empty)')}`);
   const inspected = safe(() => inspectConfig(), null);
   if (inspected && inspected.config) {
     for (const key of Object.keys(DEFAULTS)) {
@@ -134,13 +145,18 @@ function debugReport() {
 
   out.push('');
   out.push('--- profiles ---');
-  const profiles = safe(() => fs.readdirSync(PATHS.profiles), null);
-  out.push(Array.isArray(profiles) && profiles.length ? `  ${profiles.join(', ')}` : '  none yet');
+  let profiles = [];
+  try {
+    profiles = fs.readdirSync(PATHS.profiles);
+  } catch {
+    profiles = [];
+  }
+  out.push(profiles.length ? `  ${profiles.join(', ')}` : '  none yet (run: wpy login)');
 
   out.push('');
   out.push('--- last 30 log lines ---');
-  const log = safe(() => fs.readFileSync(PATHS.log, 'utf8').trim().split('\n').slice(-30).join('\n'), null);
-  out.push(typeof log === 'string' && log ? log : '  (log empty or missing)');
+  const log = readOr(PATHS.log, null);
+  out.push(log ? log.split('\n').slice(-30).join('\n') : '  (no log yet)');
 
   return out.join('\n');
 }

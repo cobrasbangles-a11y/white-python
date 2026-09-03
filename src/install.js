@@ -33,12 +33,37 @@ function settingsPath(scope) {
   return path.join(process.cwd(), '.claude', 'settings.json');
 }
 
+function isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function readJson(file) {
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    // A settings file that parses to null, an array, or a scalar is not
+    // something we can merge into; treat it as empty rather than crashing on
+    // property access further down.
+    return isPlainObject(parsed) ? parsed : {};
   } catch (err) {
     if (err.code === 'ENOENT') return {};
     throw new Error(`${file} is not valid JSON — fix or move it first (${err.message})`);
+  }
+}
+
+/**
+ * Refuse to touch a hooks block shaped in a way we can't merge into.
+ *
+ * Overwriting it would silently destroy whatever the user had there, and
+ * crashing on `.filter` tells them nothing. Naming the exact key does.
+ */
+function assertMergeable(settings, file) {
+  if (!isPlainObject(settings.hooks)) {
+    throw new Error(`${file} has a "hooks" value that is not an object — fix it first, nothing was changed`);
+  }
+  for (const [event, entries] of Object.entries(settings.hooks)) {
+    if (!Array.isArray(entries)) {
+      throw new Error(`${file} has "hooks.${event}" set to something other than a list — fix it first, nothing was changed`);
+    }
   }
 }
 
@@ -47,8 +72,11 @@ function writeJson(file, data) {
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
 }
 
+// Tolerates junk entries left by other tools: anything not shaped like ours
+// simply isn't ours, and is preserved untouched.
 function isOurs(entry) {
-  return (entry.hooks || []).some((h) => typeof h.command === 'string' && h.command.includes(MARKER));
+  if (!isPlainObject(entry) || !Array.isArray(entry.hooks)) return false;
+  return entry.hooks.some((h) => isPlainObject(h) && typeof h.command === 'string' && h.command.includes(MARKER));
 }
 
 /**
@@ -58,7 +86,8 @@ function isOurs(entry) {
 function installClaude({ scope = 'project' } = {}) {
   const file = settingsPath(scope);
   const settings = readJson(file);
-  settings.hooks = settings.hooks || {};
+  if (settings.hooks === undefined) settings.hooks = {};
+  assertMergeable(settings, file);
 
   for (const { event, args } of CLAUDE_EVENTS) {
     const existing = (settings.hooks[event] || []).filter((entry) => !isOurs(entry));
@@ -76,13 +105,17 @@ function uninstallClaude({ scope = 'project' } = {}) {
   const settings = readJson(file);
   let removed = 0;
 
-  for (const event of Object.keys(settings.hooks || {})) {
-    const before = settings.hooks[event].length;
-    settings.hooks[event] = settings.hooks[event].filter((entry) => !isOurs(entry));
-    removed += before - settings.hooks[event].length;
-    if (settings.hooks[event].length === 0) delete settings.hooks[event];
+  // Uninstall stays tolerant: an event we can't parse simply has none of ours
+  // in it, and is left exactly as found.
+  for (const event of Object.keys(isPlainObject(settings.hooks) ? settings.hooks : {})) {
+    const entries = settings.hooks[event];
+    if (!Array.isArray(entries)) continue;
+    const kept = entries.filter((entry) => !isOurs(entry));
+    removed += entries.length - kept.length;
+    settings.hooks[event] = kept;
+    if (kept.length === 0) delete settings.hooks[event];
   }
-  if (settings.hooks && Object.keys(settings.hooks).length === 0) delete settings.hooks;
+  if (isPlainObject(settings.hooks) && Object.keys(settings.hooks).length === 0) delete settings.hooks;
 
   writeJson(file, settings);
   return { file, removed };

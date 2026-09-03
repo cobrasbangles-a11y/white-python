@@ -289,10 +289,23 @@ your terminal.
 ## Development
 
 ```sh
-npm test        # 78 tests, no dependencies, no network
+npm test        # 82 tests, no dependencies, no network
 WHITE_PYTHON_DEBUG=1 wpy open    # mirror the log to stderr
 WHITE_PYTHON_HOME=/tmp/white-python-scratch wpy open   # sandbox state and profiles
 ```
+
+There is also an end-to-end check that drives a real browser on a real display —
+the layer unit tests can't reach. It runs every command, reads window counts
+back from the window manager, and fails if anything is left open:
+
+```sh
+Xvfb :99 -screen 0 1920x1080x24 &
+DISPLAY=:99 openbox &
+DISPLAY=:99 bash test/integration.sh
+```
+
+It needs a browser, a display and a window manager, so it's deliberately not
+part of `npm test`, which stays dependency-free and headless.
 
 `adapters/` holds copy-pasteable wiring for each agent, including exactly what
 `wpy install` writes into `settings.json` if you'd rather do it by hand.

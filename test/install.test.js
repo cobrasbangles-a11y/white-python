@@ -98,3 +98,68 @@ test('a corrupt settings file fails with a pointed message instead of silent dat
     assert.throws(() => installClaude({ scope: 'project' }), /not valid JSON/);
   });
 });
+
+// --- malformed settings.json ---
+//
+// settings.json is hand-editable and shared with other tools, so it can hold
+// shapes we don't expect. Every case below used to throw a raw TypeError out
+// of `install`, which reads to the user as "installing broke everything".
+
+function writeSettings(text) {
+  fs.mkdirSync('.claude', { recursive: true });
+  fs.writeFileSync(path.join('.claude', 'settings.json'), text);
+}
+
+test('a settings file that is null or an array is treated as empty, not crashed on', () => {
+  for (const junk of ['null', '[]', '"a string"', '42']) {
+    withTempProject(() => {
+      writeSettings(junk);
+      assert.doesNotThrow(() => installClaude({ scope: 'project' }), `threw for ${junk}`);
+      const hooks = readSettings().hooks;
+      for (const { event } of CLAUDE_EVENTS) assert.ok(hooks[event], `${event} missing for ${junk}`);
+    });
+  }
+});
+
+test('junk entries left by other tools are tolerated and preserved', () => {
+  withTempProject(() => {
+    writeSettings(JSON.stringify({ hooks: { Stop: [null, { hooks: 'not-a-list' }] } }));
+    assert.doesNotThrow(() => installClaude({ scope: 'project' }));
+    const stop = readSettings().hooks.Stop;
+    assert.ok(stop.some((e) => e === null), 'a null entry should survive untouched');
+    assert.ok(stop.some((e) => e && e.hooks === 'not-a-list'), 'a foreign entry should survive untouched');
+    assert.ok(stop.some((e) => e && Array.isArray(e.hooks) && String(e.hooks[0].command).includes('white-python.js')));
+  });
+});
+
+test('an unmergeable hooks shape is refused by name, and nothing is written', () => {
+  for (const [junk, needle] of [
+    [JSON.stringify({ hooks: { Stop: 'a string' } }), /hooks\.Stop/],
+    [JSON.stringify({ hooks: { Stop: { a: 1 } } }), /hooks\.Stop/],
+    [JSON.stringify({ hooks: [] }), /"hooks"/],
+  ]) {
+    withTempProject(() => {
+      writeSettings(junk);
+      assert.throws(() => installClaude({ scope: 'project' }), needle);
+      assert.strictEqual(
+        fs.readFileSync(path.join('.claude', 'settings.json'), 'utf8'),
+        junk,
+        'a refused install must not modify the file'
+      );
+    });
+  }
+});
+
+test('uninstall never throws on any of that, and leaves foreign data alone', () => {
+  for (const junk of [
+    JSON.stringify({ hooks: { Stop: 'a string' } }),
+    JSON.stringify({ hooks: [] }),
+    'null',
+    JSON.stringify({ hooks: { Stop: [null] } }),
+  ]) {
+    withTempProject(() => {
+      writeSettings(junk);
+      assert.doesNotThrow(() => uninstallClaude({ scope: 'project' }), `threw for ${junk}`);
+    });
+  }
+});
