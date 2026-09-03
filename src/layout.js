@@ -11,6 +11,10 @@ function normalizeInsets(insets) {
 function computeLayout({ screen, count, layout = 'columns', gap = 0, insets }) {
   if (count < 1) return [];
   const pad = normalizeInsets(insets);
+  // The screen may be a secondary display sitting at a non-zero desktop
+  // offset, so every coordinate is relative to its origin, not to 0,0.
+  const originX = screen.x || 0;
+  const originY = screen.y || 0;
   const usableWidth = Math.max(1, screen.width - pad.left - pad.right);
   const usableHeight = Math.max(1, screen.height - pad.top - pad.bottom);
   const totalGap = gap * (count - 1);
@@ -25,8 +29,8 @@ function computeLayout({ screen, count, layout = 'columns', gap = 0, insets }) {
       height = Math.floor(width / PHONE_ASPECT);
     }
     const rowWidth = width * count + totalGap;
-    const startX = pad.left + Math.floor((usableWidth - rowWidth) / 2);
-    const startY = pad.top + Math.floor((usableHeight - height) / 2);
+    const startX = originX + pad.left + Math.floor((usableWidth - rowWidth) / 2);
+    const startY = originY + pad.top + Math.floor((usableHeight - height) / 2);
     return Array.from({ length: count }, (_, i) => ({
       x: startX + i * (width + gap),
       y: startY,
@@ -40,11 +44,11 @@ function computeLayout({ screen, count, layout = 'columns', gap = 0, insets }) {
   const width = Math.floor((usableWidth - totalGap) / count);
   return Array.from({ length: count }, (_, i) => {
     const isLast = i === count - 1;
-    const x = pad.left + i * (width + gap);
+    const x = originX + pad.left + i * (width + gap);
     return {
       x,
-      y: pad.top,
-      width: isLast ? pad.left + usableWidth - x : width,
+      y: originY + pad.top,
+      width: isLast ? originX + pad.left + usableWidth - x : width,
       height: usableHeight,
     };
   });

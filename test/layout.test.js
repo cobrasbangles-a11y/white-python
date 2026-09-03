@@ -70,3 +70,42 @@ test('a single feed takes the whole screen', () => {
 test('zero feeds produces no windows', () => {
   assert.deepStrictEqual(computeLayout({ screen: HD, count: 0 }), []);
 });
+
+// --- multi-monitor: every coordinate is relative to the chosen display ---
+
+test('windows are placed relative to a secondary display origin', () => {
+  const external = { x: 1512, y: 0, width: 2560, height: 1440 };
+  const rects = computeLayout({ screen: external, count: 3 });
+  assert.strictEqual(rects[0].x, 1512, 'first window starts at the display origin');
+  const last = rects[rects.length - 1];
+  assert.strictEqual(last.x + last.width, 1512 + 2560, 'row ends at the display edge');
+  assert.ok(rects.every((r) => r.y === 0));
+});
+
+test('a display above the primary keeps its negative origin', () => {
+  const above = { x: 0, y: -1440, width: 2560, height: 1440 };
+  const rects = computeLayout({ screen: above, count: 3 });
+  assert.ok(rects.every((r) => r.y === -1440));
+  assert.strictEqual(rects[0].x, 0);
+});
+
+test('insets and origins compose without double-counting', () => {
+  const external = { x: 1512, y: 100, width: 2000, height: 1000 };
+  const insets = { top: 25, right: 10, bottom: 0, left: 15 };
+  const rects = computeLayout({ screen: external, count: 2, insets });
+  assert.strictEqual(rects[0].x, 1512 + 15);
+  assert.strictEqual(rects[0].y, 100 + 25);
+  const last = rects[rects.length - 1];
+  assert.strictEqual(last.x + last.width, 1512 + 2000 - 10);
+});
+
+test('phones layout centers within the secondary display, not the desktop', () => {
+  const external = { x: 1512, y: 0, width: 2560, height: 1440 };
+  const rects = computeLayout({ screen: external, count: 3, layout: 'phones' });
+  const rowStart = rects[0].x;
+  const rowEnd = rects[rects.length - 1].x + rects[rects.length - 1].width;
+  const leftMargin = rowStart - external.x;
+  const rightMargin = external.x + external.width - rowEnd;
+  assert.ok(Math.abs(leftMargin - rightMargin) <= 1, 'centered within its own display');
+  assert.ok(leftMargin >= 0 && rightMargin >= 0, 'must stay on the display');
+});

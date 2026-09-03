@@ -2,6 +2,7 @@
 
 const { execFileSync } = require('node:child_process');
 const { log } = require('./log');
+const { detectDisplays, selectDisplay } = require('./displays');
 
 const FALLBACK = { width: 1920, height: 1080 };
 
@@ -66,20 +67,47 @@ function detectWindows() {
   return null;
 }
 
+/**
+ * Work out the rectangle the feeds should be laid out inside, in browser
+ * coordinates (top-left origin, primary display at 0,0).
+ *
+ * Four layers, most specific first: an explicit config override, full display
+ * enumeration (which is what makes "put it on the second monitor" work), a
+ * single-screen probe for machines where enumeration isn't available, and
+ * finally a hardcoded guess so we always return something usable.
+ */
 function detectScreen(config = {}) {
   if (config.screen && config.screen.width && config.screen.height) {
-    return { ...config.screen, source: 'config' };
+    return { x: 0, y: 0, ...config.screen, source: 'config' };
   }
+
+  const displays = detectDisplays();
+  if (displays) {
+    const chosen = selectDisplay(displays, config.display ?? 'auto');
+    if (chosen) {
+      return {
+        x: chosen.x,
+        y: chosen.y,
+        width: chosen.width,
+        height: chosen.height,
+        source: 'display',
+        display: chosen,
+        displayCount: displays.length,
+      };
+    }
+  }
+
   let detected = null;
   if (process.platform === 'darwin') detected = detectDarwin();
   else if (process.platform === 'win32') detected = detectWindows();
   else detected = detectLinux();
 
   if (detected && detected.width > 0 && detected.height > 0) {
-    return { ...detected, source: 'detected' };
+    return { x: 0, y: 0, ...detected, source: 'detected' };
   }
+
   log('screen: falling back to', FALLBACK);
-  return { ...FALLBACK, source: 'fallback' };
+  return { x: 0, y: 0, ...FALLBACK, source: 'fallback' };
 }
 
 // The menu bar on macOS is always on top; leaving it clear keeps the first

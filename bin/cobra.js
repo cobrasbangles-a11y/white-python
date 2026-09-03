@@ -5,6 +5,7 @@ const { readConfig, writeConfig, setConfigPath, PATHS } = require('../src/config
 const { FEEDS } = require('../src/feeds');
 const { openWindows, closeWindows, status } = require('../src/windows');
 const { detectScreen, defaultInsets } = require('../src/screen');
+const { detectDisplays, selectDisplay } = require('../src/displays');
 const { findBrowser } = require('../src/browser');
 const hooks = require('../src/hooks');
 const install = require('../src/install');
@@ -32,6 +33,7 @@ Config
   cobra config                          show the effective config
   cobra config <key>=<value> [...]      e.g. layout=phones openDelayMs=0 closeOn.done=false
   cobra feeds                           list the built-in feeds
+  cobra displays                        list your monitors and which one gets the feeds
 
 Files live in ${PATHS.root}
 `;
@@ -147,6 +149,27 @@ async function main() {
       return;
     }
 
+    case 'displays': {
+      const config = readConfig();
+      const displays = detectDisplays();
+      if (!displays) {
+        process.stdout.write('Could not enumerate displays on this machine.\n');
+        process.stdout.write('Set the geometry by hand: cobra config screen.width=2560 screen.height=1440\n');
+        return;
+      }
+      const chosen = selectDisplay(displays, config.display);
+      for (const d of displays) {
+        const marks = [d.primary ? 'primary' : null, d === chosen ? '← feeds go here' : null]
+          .filter(Boolean)
+          .join('  ');
+        process.stdout.write(
+          `  [${d.index}] ${String(d.name).padEnd(16)} ${d.width}x${d.height} at ${d.x},${d.y}  ${marks}\n`
+        );
+      }
+      process.stdout.write(`\ndisplay = ${config.display}   (change with: cobra config display=primary)\n`);
+      return;
+    }
+
     case 'config': {
       if (!positional.length) {
         process.stdout.write(`${JSON.stringify(readConfig(), null, 2)}\n`);
@@ -199,9 +222,20 @@ async function main() {
       process.stdout.write(`state:   ${config.enabled ? 'on' : 'off'}\n`);
 
       const screen = detectScreen(config);
-      process.stdout.write(`screen:  ${screen.width}x${screen.height} (${screen.source})\n`);
+      const where = screen.x || screen.y ? ` at ${screen.x},${screen.y}` : '';
+      process.stdout.write(`screen:  ${screen.width}x${screen.height}${where} (${screen.source})\n`);
       if (screen.source === 'fallback') {
         process.stdout.write('         ↳ detection failed; set it with: cobra config screen.width=2560 screen.height=1440\n');
+      }
+      const displays = detectDisplays();
+      if (displays) {
+        const chosen = screen.display;
+        process.stdout.write(`display: ${displays.length} attached, using "${config.display}" → ${chosen ? chosen.name : 'n/a'}\n`);
+        if (displays.length === 1) {
+          process.stdout.write('         ↳ only one display; feeds will cover your editor. A second monitor is where this shines.\n');
+        }
+      } else {
+        process.stdout.write('display: could not enumerate (single-screen mode)\n');
       }
 
       try {

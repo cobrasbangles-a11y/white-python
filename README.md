@@ -74,6 +74,36 @@ cobra wrap -- your-agent --do-the-thing
 cobra wrap -- npm run build
 ```
 
+## Multi-monitor
+
+This is where it stops being a gimmick. On a two-screen desk the feeds go on the
+second monitor and your editor stays exactly where it was.
+
+```sh
+cobra displays
+```
+
+```
+  [0] eDP-1            1512x945 at 0,0       primary
+  [1] HDMI-1           2560x1440 at 1512,0   ← feeds go here
+```
+
+The default is `display=auto`, which means *the second monitor if you have one,
+otherwise the main one* — so it does the right thing on one screen and the
+better thing on two. Override it however you like:
+
+```sh
+cobra config display=primary     # keep them on the main screen
+cobra config display=1           # by index, from `cobra displays`
+cobra config display=HDMI-1      # by output name
+```
+
+Displays are enumerated per platform: `NSScreen` via JXA on macOS, `xrandr` on
+Linux, `System.Windows.Forms.Screen` on Windows. macOS reports screen geometry
+bottom-left-origin with +Y upward while browsers place windows top-left-origin
+with +Y downward, so cobra flips the coordinates — without that, a monitor
+stacked above your laptop would get windows placed below it.
+
 ## Everyday use
 
 ```sh
@@ -82,6 +112,7 @@ cobra open               # pull them up right now
 cobra close              # put them away
 cobra status             # what's open, and what's armed
 cobra feeds              # list the built-in feeds
+cobra displays           # your monitors, and which one gets the feeds
 cobra doctor             # diagnose browser, screen, layout and hook wiring
 ```
 
@@ -102,6 +133,7 @@ cobra config closeOn.question=false   # only close when the agent is fully done
 | `audio` | `primary` | `primary` = leftmost keeps sound. Also `all` or `none`. |
 | `openDelayMs` | `8000` | How long the agent must be busy before anything opens. |
 | `closeOn` | all on | `question`, `done`, `sessionEnd` — turn any of them off. |
+| `display` | `auto` | Which monitor: `auto` (second if present), `primary`, `secondary`, an index, or an output name. |
 | `browser` | `auto` | A key (`chrome`, `brave`, `edge`, `chromium`, `firefox`) or a full path. |
 | `appMode` | `true` | Chromeless windows. Off gives you tabs and an address bar. |
 | `screen` | auto-detected | Override with `screen.width` / `screen.height` if detection is wrong. |
@@ -142,7 +174,7 @@ your terminal.
 ## Development
 
 ```sh
-npm test        # 23 tests, no dependencies, no network
+npm test        # 39 tests, no dependencies, no network
 COBRA_DEBUG=1 cobra open    # mirror the log to stderr
 COBRA_HOME=/tmp/cobra-scratch cobra open   # sandbox state and profiles
 ```

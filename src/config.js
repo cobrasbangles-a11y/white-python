@@ -49,7 +49,14 @@ const DEFAULTS = {
   // tabs and an address bar.
   appMode: true,
 
-  // Override screen detection, e.g. {"width": 3440, "height": 1440}.
+  // Which monitor the feeds land on: "auto" (a second display if you have one,
+  // otherwise the main one), "primary", "secondary", a 0-based index, or an
+  // output name like "HDMI-1". The point of "auto" is that on a two-monitor
+  // desk the feeds never cover your editor.
+  display: 'auto',
+
+  // Override screen detection entirely, e.g. {"width": 3440, "height": 1440}.
+  // Takes precedence over `display`.
   screen: null,
 
   // Space kept clear around the whole row of windows.
