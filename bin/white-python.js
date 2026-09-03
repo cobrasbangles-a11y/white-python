@@ -359,18 +359,26 @@ async function main() {
         process.stdout.write(`browser: NOT FOUND — ${err.message}\n`);
       }
 
+      let staleScope = null;
       for (const scope of ['project', 'user']) {
-        const file = install.settingsPath(scope);
-        let wired = 0;
-        try {
-          const settings = JSON.parse(require('node:fs').readFileSync(file, 'utf8'));
-          for (const entries of Object.values(settings.hooks || {})) {
-            wired += entries.filter((e) => (e.hooks || []).some((h) => String(h.command).includes('white-python.js'))).length;
-          }
-        } catch {
-          /* not installed there */
+        const status = install.hookStatus(scope);
+        const stale = status.hooks.filter((h) => !h.exists);
+        let state;
+        if (!status.hooks.length) state = 'not installed';
+        else if (stale.length) {
+          state = `${status.hooks.length} wired, ${stale.length} STALE`;
+          staleScope = scope;
+        } else state = `${status.hooks.length} wired`;
+        process.stdout.write(`hooks:   ${scope.padEnd(7)} ${state.padEnd(22)} (${status.file})\n`);
+        if (stale.length) {
+          process.stdout.write(`         ↳ they point at ${stale[0].target}, which no longer exists.\n`);
+          process.stdout.write('         ↳ every turn will error until you re-install or remove them.\n');
         }
-        process.stdout.write(`hooks:   ${scope.padEnd(7)} ${wired ? `${wired} wired` : 'not installed'}  (${file})\n`);
+      }
+      if (staleScope) {
+        process.stdout.write(
+          `         ↳ fix: wpy install${staleScope === 'user' ? ' --user' : ''}   (or remove: wpy uninstall${staleScope === 'user' ? ' --user' : ''})\n`
+        );
       }
 
       const rects = require('../src/layout').computeLayout({

@@ -289,7 +289,7 @@ your terminal.
 ## Development
 
 ```sh
-npm test        # 82 tests, no dependencies, no network
+npm test        # 86 tests, no dependencies, no network
 WHITE_PYTHON_DEBUG=1 wpy open    # mirror the log to stderr
 WHITE_PYTHON_HOME=/tmp/white-python-scratch wpy open   # sandbox state and profiles
 ```
@@ -340,8 +340,18 @@ repairs, display enumeration (including the raw macOS probes when it fails),
 every browser path searched and whether it was found, hook wiring, and the last
 30 log lines. Paste it when reporting a problem.
 
-If the hooks themselves are misbehaving, this removes them and leaves the rest
-of your settings alone:
+**If every turn started erroring right after installing**, the most likely cause
+is that the clone moved. `wpy install` writes absolute paths, so if the folder
+is renamed, moved or deleted, each hook still fires and then dies with a Node
+"cannot find module" trace — on every turn. `wpy doctor` names it:
+
+```
+hooks:   project 4 wired, 4 STALE       (~/.claude/settings.json)
+         ↳ they point at /old/path/white-python.js, which no longer exists.
+         ↳ every turn will error until you re-install or remove them.
+```
+
+Re-run `wpy install --user` from the clone's new location, or remove the hooks:
 
 ```sh
 wpy uninstall --user

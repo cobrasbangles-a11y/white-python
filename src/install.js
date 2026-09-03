@@ -149,4 +149,47 @@ function installCodex() {
   return { file, changed: true, line };
 }
 
-module.exports = { installClaude, uninstallClaude, installCodex, codexSnippet, hookCommand, CLAUDE_EVENTS, settingsPath };
+/**
+ * Where each installed hook actually points, and whether that file still
+ * exists.
+ *
+ * `install` writes absolute paths, so moving or deleting the clone leaves
+ * hooks that fire on every turn and die with a Node module-not-found trace —
+ * which reads as the agent itself being broken. Worth naming explicitly.
+ */
+function hookStatus(scope) {
+  const file = settingsPath(scope);
+  let settings;
+  try {
+    settings = readJson(file);
+  } catch {
+    return { file, readable: false, hooks: [] };
+  }
+  const hooks = [];
+  for (const [event, entries] of Object.entries(isPlainObject(settings.hooks) ? settings.hooks : {})) {
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!isOurs(entry)) continue;
+      for (const h of entry.hooks) {
+        const command = String(h.command || '');
+        // Pull our script path back out of `"<node>" "<cli>" hook start`,
+        // tolerating the quoting added for paths containing spaces.
+        const match = command.match(/"([^"]*white-python\.js)"|(\S*white-python\.js)/);
+        const target = match ? match[1] || match[2] : null;
+        hooks.push({ event, command, target, exists: target ? fs.existsSync(target) : false });
+      }
+    }
+  }
+  return { file, readable: true, hooks };
+}
+
+module.exports = {
+  installClaude,
+  uninstallClaude,
+  installCodex,
+  codexSnippet,
+  hookCommand,
+  hookStatus,
+  CLAUDE_EVENTS,
+  settingsPath,
+};

@@ -163,3 +163,65 @@ test('uninstall never throws on any of that, and leaves foreign data alone', () 
     });
   }
 });
+
+// --- stale hook paths ---
+//
+// install writes absolute paths, so moving or deleting the clone leaves hooks
+// that fire on every turn and die with a Node module-not-found trace. That
+// looks like the agent itself is broken, so it has to be named explicitly.
+
+const { hookStatus } = require('../src/install');
+
+test('a healthy install reports every hook as present', () => {
+  withTempProject(() => {
+    installClaude({ scope: 'project' });
+    const status = hookStatus('project');
+    assert.strictEqual(status.hooks.length, CLAUDE_EVENTS.length);
+    assert.ok(status.hooks.every((h) => h.exists), 'all hooks should point at a real file');
+    assert.ok(status.hooks.every((h) => h.target && h.target.endsWith('white-python.js')));
+  });
+});
+
+test('a hook pointing at a missing file is reported stale, with the path', () => {
+  withTempProject(() => {
+    installClaude({ scope: 'project' });
+    const file = settingsPath('project');
+    const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const entries of Object.values(settings.hooks)) {
+      for (const entry of entries) {
+        entry.hooks[0].command = entry.hooks[0].command.replace(
+          /("?)[^"\s]*white-python\.js/,
+          '$1/nowhere/at/all/white-python.js'
+        );
+      }
+    }
+    fs.writeFileSync(file, JSON.stringify(settings));
+
+    const status = hookStatus('project');
+    assert.strictEqual(status.hooks.length, CLAUDE_EVENTS.length);
+    assert.ok(status.hooks.every((h) => !h.exists), 'every hook should read as stale');
+    assert.ok(status.hooks.every((h) => h.target === '/nowhere/at/all/white-python.js'));
+  });
+});
+
+test('hookStatus finds our script even when the path contains spaces', () => {
+  withTempProject(() => {
+    installClaude({ scope: 'project' });
+    const file = settingsPath('project');
+    const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const quoted = '"/opt/my node/bin/node" "/Users/a b/tools/white-python/bin/white-python.js" hook start';
+    settings.hooks.UserPromptSubmit = [{ hooks: [{ type: 'command', command: quoted }] }];
+    fs.writeFileSync(file, JSON.stringify(settings));
+
+    const found = hookStatus('project').hooks.find((h) => h.event === 'UserPromptSubmit');
+    assert.strictEqual(found.target, '/Users/a b/tools/white-python/bin/white-python.js');
+    assert.strictEqual(found.exists, false);
+  });
+});
+
+test('hookStatus reports nothing rather than throwing when there are no settings', () => {
+  withTempProject(() => {
+    const status = hookStatus('project');
+    assert.deepStrictEqual(status.hooks, []);
+  });
+});

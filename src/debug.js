@@ -8,7 +8,7 @@ const { execFileSync } = require('node:child_process');
 const { PATHS, inspectConfig, DEFAULTS } = require('./config');
 const { CANDIDATES, findBrowser } = require('./browser');
 const { detectDisplays } = require('./displays');
-const { settingsPath } = require('./install');
+const { settingsPath, hookStatus } = require('./install');
 
 /**
  * Everything needed to diagnose a failure on someone else's machine, in one
@@ -128,19 +128,19 @@ function debugReport() {
   out.push('');
   out.push('--- hooks ---');
   for (const scope of ['project', 'user']) {
-    const file = safe(() => settingsPath(scope), '(unknown)');
-    let state = 'not installed';
-    try {
-      const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
-      let wired = 0;
-      for (const entries of Object.values(settings.hooks || {})) {
-        wired += entries.filter((e) => (e.hooks || []).some((h) => String(h.command).includes('white-python.js'))).length;
-      }
-      state = wired ? `${wired} wired` : 'present, none of ours';
-    } catch (err) {
-      state = err.code === 'ENOENT' ? 'no settings file' : `unreadable: ${err.message}`;
+    const status = safe(() => hookStatus(scope), null);
+    if (!status || !status.hooks) {
+      line(out, `  ${scope}`, `could not read: ${status}`);
+      continue;
     }
-    line(out, `  ${scope}`, `${state.padEnd(22)} ${file}`);
+    const stale = status.hooks.filter((h) => !h.exists);
+    const state = status.hooks.length
+      ? `${status.hooks.length} wired${stale.length ? `, ${stale.length} STALE` : ''}`
+      : 'not installed';
+    line(out, `  ${scope}`, `${state.padEnd(22)} ${status.file}`);
+    for (const h of status.hooks) {
+      line(out, `    ${h.event}`, `${h.exists ? 'ok  ' : 'MISSING'} ${h.target || h.command}`);
+    }
   }
 
   out.push('');
