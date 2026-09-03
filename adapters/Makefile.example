@@ -1,17 +1,17 @@
 # Wrap any long build or test target, so the feeds are up only while it runs.
 #
-# `-` prefixes mean a cobra failure can never fail your build, and the `||:` on
+# `-` prefixes mean a white-python failure can never fail your build, and the `||:` on
 # the stop line makes sure the feeds close even when the target itself fails.
 
 SESSION := build-$(shell basename $(CURDIR))
 
 .PHONY: test
 test:
-	-@cobra start --session $(SESSION)
-	@npm test || (cobra stop --session $(SESSION) ||:; exit 1)
-	-@cobra stop --session $(SESSION)
+	-@white-python start --session $(SESSION)
+	@npm test || (white-python stop --session $(SESSION) ||:; exit 1)
+	-@white-python stop --session $(SESSION)
 
 # Or, more simply:
 .PHONY: test-wrapped
 test-wrapped:
-	@cobra wrap -- npm test
+	@white-python wrap -- npm test

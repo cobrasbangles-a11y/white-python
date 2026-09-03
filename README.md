@@ -1,4 +1,4 @@
-# cobra-tool
+# white-python
 
 Instantly pull up TikTok, Instagram Reels and YouTube Shorts — side by side —
 while your coding agent is working. The moment it has a question or finishes,
@@ -24,21 +24,69 @@ the feeds vanish and you're looking at your terminal again.
 Needs Node 18+ and a Chromium-family browser (Chrome, Brave, Edge, Chromium).
 
 ```sh
-git clone https://github.com/cobrasbangles-a11y/cobra-tool
-cd cobra-tool
-npm link            # optional — gives you a global `cobra`
-cobra doctor        # check browser + screen detection before wiring anything up
+mkdir -p ~/tools && cd ~/tools
+git clone https://github.com/cobrasbangles-a11y/cobra-tool white-python
+cd white-python
+npm link
 ```
 
-Then wire it into your agent:
+That gives you two commands, both the same program: **`white-python`** and the
+short **`wpy`**. Two names on purpose — `wpy` is what you'll type, and the long
+one is there in case something else on your PATH ever claims the short one.
+
+Clone somewhere permanent. `wpy install` writes absolute paths into your
+`settings.json`, so moving or deleting the clone afterwards silently stops the
+hooks from firing.
 
 ```sh
-cobra install          # this repo only
-cobra install --user   # every repo you open
+wpy doctor      # check browser + screen detection BEFORE wiring anything up
+wpy login       # sign in to each feed once
+wpy install     # this repo only
+wpy install --user   # every repo you open
 ```
 
-Restart Claude Code (or run `/hooks`) and you're done. `cobra uninstall` takes
-it back out and leaves the rest of your settings untouched.
+Restart Claude Code (or run `/hooks`) and you're done. `wpy uninstall` takes it
+back out and leaves the rest of your settings untouched.
+
+### If `npm link` fails
+
+Usually a permissions error on a system-installed Node. Either symlink it
+yourself:
+
+```sh
+mkdir -p ~/.local/bin
+ln -sf ~/tools/white-python/bin/white-python.js ~/.local/bin/wpy
+# then make sure ~/.local/bin is on your PATH
+```
+
+or alias it in `~/.zshrc` (or `~/.bashrc`):
+
+```sh
+alias wpy="node ~/tools/white-python/bin/white-python.js"
+```
+
+## Signing in
+
+The feeds are far better logged in, and you should only ever have to do it once:
+
+```sh
+wpy login
+```
+
+That opens each feed in a **normal** browser window — address bar and all,
+because OAuth popups and 2FA are miserable in a chromeless one. Sign in to each,
+press Enter, and they close.
+
+Every feed keeps its own profile directory under `~/.white-python/profiles/`,
+which persists across sessions, reboots and upgrades. So the windows that open
+while your agent works are already signed in. `wpy doctor` shows how many feeds
+have a stored profile.
+
+Two honest caveats. This reports whether a browser **profile** exists, not
+whether you're actually signed in — Chromium encrypts its cookie store, and
+checking properly would mean a native dependency. And Google sometimes refuses
+sign-in from a browser launched with a custom profile directory; YouTube Shorts
+browses fine signed out, so that's rarely a problem in practice.
 
 ## How it decides when to open
 
@@ -52,32 +100,32 @@ it back out and leaves the rest of your settings untouched.
 
 The delay is the important part. Without it, "what does this function do" would
 summon three browser windows for about a second and a half. Eight seconds is the
-default; `cobra config openDelayMs=0` makes it instant, or crank it up if you
+default; `wpy config openDelayMs=0` makes it instant, or crank it up if you
 only want the feeds on genuinely long jobs.
 
 ## Other agents
 
 The whole interface is two commands. Anything that can run a shell command when
-work starts and when it ends can drive cobra:
+work starts and when it ends can drive white-python:
 
 ```sh
-cobra start
-cobra stop
+wpy start
+wpy stop
 ```
 
 **Codex** notifies on turn completion but has no turn-start event, so it gets
 the closing half natively and the opening half from the wrapper:
 
 ```sh
-cobra install --codex
-cobra wrap -- codex
+wpy install --codex
+wpy wrap -- codex
 ```
 
 **Any other agent CLI** — aider, opencode, whatever you're running — gets the
 full open *and* close behaviour from `--idle`, no hooks required:
 
 ```sh
-cobra wrap --idle 8 -- aider
+wpy wrap --idle 8 -- aider
 ```
 
 The wrapper watches the command's output and treats 8 seconds of silence from a
@@ -86,12 +134,12 @@ moment it starts talking again. Pick a number above the agent's normal thinking
 pauses — too low and the feeds flap, too high and you scroll past the question.
 
 Because `--idle` has to pipe output in order to watch it, it isn't right for
-full-screen TUIs that redraw the terminal. For those, plain `cobra wrap` passes
+full-screen TUIs that redraw the terminal. For those, plain `white-python wrap` passes
 the terminal through untouched and closes on exit:
 
 ```sh
-cobra wrap -- your-agent --do-the-thing
-cobra wrap -- npm run build
+wpy wrap -- your-agent --do-the-thing
+wpy wrap -- npm run build
 ```
 
 Exit codes pass straight through in every case. See `adapters/` for
@@ -103,7 +151,7 @@ This is where it stops being a gimmick. On a two-screen desk the feeds go on the
 second monitor and your editor stays exactly where it was.
 
 ```sh
-cobra displays
+white-python displays
 ```
 
 ```
@@ -116,28 +164,29 @@ otherwise the main one* — so it does the right thing on one screen and the
 better thing on two. Override it however you like:
 
 ```sh
-cobra config display=primary     # keep them on the main screen
-cobra config display=1           # by index, from `cobra displays`
-cobra config display=HDMI-1      # by output name
+wpy config display=primary     # keep them on the main screen
+wpy config display=1           # by index, from `white-python displays`
+wpy config display=HDMI-1      # by output name
 ```
 
 Displays are enumerated per platform: `NSScreen` via JXA on macOS, `xrandr` on
 Linux, `System.Windows.Forms.Screen` on Windows. macOS reports screen geometry
 bottom-left-origin with +Y upward while browsers place windows top-left-origin
-with +Y downward, so cobra flips the coordinates — without that, a monitor
+with +Y downward, so white-python flips the coordinates — without that, a monitor
 stacked above your laptop would get windows placed below it.
 
 ## Everyday use
 
 ```sh
-cobra on / cobra off     # master switch; leaves your hooks in place
-cobra open               # pull them up right now
-cobra close              # put them away
-cobra status             # what's open, and what's armed
-cobra stats              # where your feed time actually went
-cobra feeds              # list the built-in feeds
-cobra displays           # your monitors, and which one gets the feeds
-cobra doctor             # diagnose browser, screen, layout and hook wiring
+wpy on / wpy off   # master switch; leaves your hooks in place
+wpy open           # pull them up right now
+wpy close          # put them away
+wpy status         # what's open, and what's armed
+wpy stats          # where your feed time actually went
+wpy login          # sign in to the feeds (one time)
+wpy feeds          # list the built-in feeds
+wpy displays       # your monitors, and which one gets the feeds
+wpy doctor         # diagnose browser, screen, layout and hook wiring
 ```
 
 ## Guard rails
@@ -149,13 +198,13 @@ Two things keep that honest.
 grinding, so a forty-minute test run doesn't cost you forty minutes:
 
 ```sh
-cobra config maxOpenMs=900000    # 15 minutes, then they close themselves
+wpy config maxOpenMs=900000    # 15 minutes, then they close themselves
 ```
 
 Off by default. When it fires, the windows close exactly as they would if the
 agent had finished.
 
-**Honest numbers.** Every stretch is recorded, and `cobra stats` tells you where
+**Honest numbers.** Every stretch is recorded, and `white-python stats` tells you where
 the time actually went:
 
 ```
@@ -171,18 +220,18 @@ last 7 days
 longest single stretch: 38m 12s
 ```
 
-`cobra stats --reset` clears the history. It lives in
-`~/.cobra-tool/usage.jsonl` — append-only, one JSON object per stretch, yours to
+`wpy stats --reset` clears the history. It lives in
+`~/.white-python/usage.jsonl` — append-only, one JSON object per stretch, yours to
 grep.
 
 ## Config
 
 ```sh
-cobra config                          # show everything in effect
-cobra config layout=phones
-cobra config feeds=tiktok,youtube
-cobra config openDelayMs=3000
-cobra config closeOn.question=false   # only close when the agent is fully done
+wpy config                          # show everything in effect
+wpy config layout=phones
+wpy config feeds=tiktok,youtube
+wpy config openDelayMs=3000
+wpy config closeOn.question=false   # only close when the agent is fully done
 ```
 
 | Key | Default | What it does |
@@ -199,9 +248,9 @@ cobra config closeOn.question=false   # only close when the agent is fully done
 | `screen` | auto-detected | Override with `screen.width` / `screen.height` if detection is wrong. |
 | `gap` | `0` | Space between windows, in points. |
 | `insets` | menu bar on macOS | Keep-clear space around the row: `insets.top` etc. |
-| `enabled` | `true` | What `cobra on` / `cobra off` flip. |
+| `enabled` | `true` | What `white-python on` / `white-python off` flip. |
 
-Config, state, logs and browser profiles all live in `~/.cobra-tool`.
+Config, state, logs and browser profiles all live in `~/.white-python`.
 
 ## How it works
 
@@ -209,12 +258,12 @@ Each feed opens in a **Chromium app window** — no tab strip, no address bar �
 positioned with `--window-position` and `--window-size`. That's why a
 Chromium-family browser matters: Firefox has no geometry flags, so it can only
 be nudged into place afterwards (via `wmctrl` on Linux, and not at all
-elsewhere). `cobra doctor` will tell you if you're on that path.
+elsewhere). `wpy doctor` will tell you if you're on that path.
 
 Each feed also gets **its own persistent profile** under
-`~/.cobra-tool/profiles/`. This does two useful things: the windows are separate
+`~/.white-python/profiles/`. This does two useful things: the windows are separate
 OS processes, so they can be positioned and closed independently, and you log
-into each site once and stay logged in — without cobra ever touching your normal
+into each site once and stay logged in — without white-python ever touching your normal
 browser profile. Closing kills the whole process group, so no renderers linger.
 
 Profiles are keyed per feed, and two feeds must never share one: Chromium routes
@@ -233,20 +282,20 @@ gets out of the way.
 
 They run in your agent's critical path, so they're built to be boring: they read
 stdin with a hard timeout, do their work in a detached background process, and
-**always exit 0**. A bug in cobra should cost you the feeds, not your turn. When
-something does go wrong it's written to `~/.cobra-tool/cobra.log` rather than
+**always exit 0**. A bug in white-python should cost you the feeds, not your turn. When
+something does go wrong it's written to `~/.white-python/white-python.log` rather than
 your terminal.
 
 ## Development
 
 ```sh
 npm test        # 61 tests, no dependencies, no network
-COBRA_DEBUG=1 cobra open    # mirror the log to stderr
-COBRA_HOME=/tmp/cobra-scratch cobra open   # sandbox state and profiles
+WHITE_PYTHON_DEBUG=1 wpy open    # mirror the log to stderr
+WHITE_PYTHON_HOME=/tmp/white-python-scratch wpy open   # sandbox state and profiles
 ```
 
 `adapters/` holds copy-pasteable wiring for each agent, including exactly what
-`cobra install` writes into `settings.json` if you'd rather do it by hand.
+`wpy install` writes into `settings.json` if you'd rather do it by hand.
 
 ## Status
 
@@ -254,7 +303,7 @@ Built in phases, each one landed and tested:
 
 1. **Core** — hooks, three positioned windows, delayed open, clean close.
 2. **Multi-monitor** — display enumeration on all three platforms, feeds on your second screen.
-3. **Guard rails** — a time cap on a single stretch, and `cobra stats`.
+3. **Guard rails** — a time cap on a single stretch, and `white-python stats`.
 4. **Any agent** — `--idle` output watching, public `start`/`stop`, adapters.
 5. **CI** — tests on macOS, Linux and Windows across Node 18/20/22.
 

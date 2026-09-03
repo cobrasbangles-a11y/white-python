@@ -4,10 +4,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-// Point cobra at a throwaway home BEFORE requiring anything that reads config,
+// Point white-python at a throwaway home BEFORE requiring anything that reads config,
 // so these tests can never touch a real usage history.
-const TMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'cobra-usage-'));
-process.env.COBRA_HOME = TMP_HOME;
+const TMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'white-python-usage-'));
+process.env.WHITE_PYTHON_HOME = TMP_HOME;
 
 const test = require('node:test');
 const assert = require('node:assert');

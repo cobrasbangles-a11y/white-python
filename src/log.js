@@ -6,7 +6,7 @@ const { PATHS, ensureRoot } = require('./config');
 const MAX_BYTES = 512 * 1024;
 
 // Hooks run detached with nowhere useful to print, so everything interesting
-// goes to ~/.cobra-tool/cobra.log instead. Logging must never be the reason a
+// goes to ~/.white-python/white-python.log instead. Logging must never be the reason a
 // hook fails, hence the blanket catch.
 function log(...parts) {
   const line = `${new Date().toISOString()} ${parts
@@ -25,7 +25,7 @@ function log(...parts) {
   } catch {
     /* logging is best effort */
   }
-  if (process.env.COBRA_DEBUG) process.stderr.write(line);
+  if (process.env.WHITE_PYTHON_DEBUG) process.stderr.write(line);
 }
 
 module.exports = { log };

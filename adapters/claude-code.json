@@ -1,9 +1,9 @@
 {
   "_comment": [
-    "What `cobra install` writes into .claude/settings.json.",
+    "What `white-python install` writes into .claude/settings.json.",
     "Shown here so you can wire it by hand, adapt it for another agent, or",
     "see exactly what the installer is doing before you let it touch a file.",
-    "Replace /path/to/cobra-tool with wherever you cloned this."
+    "Replace /path/to/white-python with wherever you cloned this."
   ],
   "hooks": {
     "UserPromptSubmit": [
@@ -11,7 +11,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node /path/to/cobra-tool/bin/cobra.js hook start"
+            "command": "node /path/to/white-python/bin/white-python.js hook start"
           }
         ]
       }
@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node /path/to/cobra-tool/bin/cobra.js hook stop --reason question"
+            "command": "node /path/to/white-python/bin/white-python.js hook stop --reason question"
           }
         ]
       }
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node /path/to/cobra-tool/bin/cobra.js hook stop --reason done"
+            "command": "node /path/to/white-python/bin/white-python.js hook stop --reason done"
           }
         ]
       }
@@ -41,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node /path/to/cobra-tool/bin/cobra.js hook stop --reason session-end"
+            "command": "node /path/to/white-python/bin/white-python.js hook stop --reason session-end"
           }
         ]
       }

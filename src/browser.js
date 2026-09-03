@@ -86,7 +86,7 @@ function findBrowser(preference = 'auto') {
   const found = list.find((c) => exists(c.bin));
   if (found) return { ...found };
   throw new Error(
-    'No supported browser found. Install Chrome/Chromium/Brave/Edge, or set one explicitly: cobra config browser=/path/to/browser'
+    'No supported browser found. Install Chrome/Chromium/Brave/Edge, or set one explicitly: white-python config browser=/path/to/browser'
   );
 }
 

@@ -31,11 +31,11 @@ function shouldMute(audioMode, index) {
  * Open one window per feed, positioned side by side.
  * Returns { opened: [...], skipped?: reason }.
  */
-function openWindows({ sessionId, config = readConfig(), feeds, layout, reason = 'manual' } = {}) {
+function openWindows({ sessionId, config = readConfig(), feeds, layout, reason = 'manual', appMode } = {}) {
   if (!sessionId) throw new Error('openWindows requires a sessionId');
 
   if (!config.enabled) {
-    log('open: skipped, cobra is disabled');
+    log('open: skipped, white-python is disabled');
     return { opened: [], skipped: 'disabled' };
   }
 
@@ -70,7 +70,7 @@ function openWindows({ sessionId, config = readConfig(), feeds, layout, reason =
       rect,
       profileDir,
       muted: shouldMute(config.audio, index),
-      appMode: config.appMode !== false,
+      appMode: appMode === undefined ? config.appMode !== false : appMode,
     });
 
     // detached gives the child its own process group on POSIX, which is what
@@ -112,7 +112,7 @@ function openWindows({ sessionId, config = readConfig(), feeds, layout, reason =
  * feeds — but only if this stretch is still the one that's open.
  */
 function armReaper(sessionId, openId, afterMs) {
-  const cli = path.join(__dirname, '..', 'bin', 'cobra.js');
+  const cli = path.join(__dirname, '..', 'bin', 'white-python.js');
   const child = spawn(
     process.execPath,
     [cli, '_reap', '--session', sessionId, '--openId', openId, '--after', String(afterMs)],

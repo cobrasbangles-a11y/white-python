@@ -9,7 +9,7 @@ const path = require('node:path');
 const { installClaude, uninstallClaude, settingsPath, CLAUDE_EVENTS } = require('../src/install');
 
 function withTempProject(run) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cobra-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'white-python-test-'));
   const cwd = process.cwd();
   process.chdir(dir);
   try {
@@ -28,7 +28,7 @@ test('install wires up every agent event we care about', () => {
     const hooks = readSettings().hooks;
     for (const { event } of CLAUDE_EVENTS) {
       assert.ok(hooks[event], `${event} should be wired`);
-      assert.match(hooks[event][0].hooks[0].command, /cobra\.js/);
+      assert.match(hooks[event][0].hooks[0].command, /white-python\.js/);
     }
     // The open/close split is the whole feature; assert the direction of each.
     assert.match(hooks.UserPromptSubmit[0].hooks[0].command, /hook start/);
