@@ -25,7 +25,7 @@ Needs Node 18+ and a Chromium-family browser (Chrome, Brave, Edge, Chromium).
 
 ```sh
 mkdir -p ~/tools && cd ~/tools
-git clone https://github.com/cobrasbangles-a11y/cobra-tool white-python
+git clone https://github.com/cobrasbangles-a11y/white-python
 cd white-python
 npm link
 ```
