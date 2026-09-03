@@ -9,11 +9,12 @@ for (const stream of [process.stdout, process.stderr]) {
   });
 }
 
-const { readConfig, writeConfig, setConfigPath, PATHS } = require('../src/config');
+const { readConfig, inspectConfig, writeConfig, setConfigPath, PATHS } = require('../src/config');
 const { FEEDS } = require('../src/feeds');
 const { openWindows, closeWindows, status, runReaper } = require('../src/windows');
 const usage = require('../src/usage');
 const { login, profileState } = require('../src/login');
+const { debugReport } = require('../src/debug');
 const { detectScreen, defaultInsets } = require('../src/screen');
 const { detectDisplays, selectDisplay } = require('../src/displays');
 const { findBrowser } = require('../src/browser');
@@ -31,6 +32,7 @@ Both "white-python" and the short "wpy" run this. Examples use wpy.
 
 Setup
   wpy doctor              check browser, screen and hook wiring FIRST
+  wpy debug               full diagnostic dump — paste this when reporting a problem
   wpy login               open the feeds once so you can sign in; sessions persist
   wpy install [--user]    wire up Claude Code hooks (this repo, or --user for all)
   wpy install --codex     wire up the Codex turn-complete notifier
@@ -309,14 +311,30 @@ async function main() {
       return;
     }
 
+    case 'debug': {
+      // Must never throw: this is what someone runs when nothing else works.
+      try {
+        process.stdout.write(`${debugReport()}\n`);
+      } catch (err) {
+        process.stdout.write(`debug report failed: ${err.stack || err.message}\n`);
+      }
+      return;
+    }
+
     case 'doctor': {
-      const config = readConfig();
+      const { config, warnings } = inspectConfig();
       process.stdout.write(`white-python ${require('../package.json').version} on ${process.platform}\n`);
       process.stdout.write(`state:   ${config.enabled ? 'on' : 'off'}\n`);
 
       const screen = detectScreen(config);
       const where = screen.x || screen.y ? ` at ${screen.x},${screen.y}` : '';
-      process.stdout.write(`screen:  ${screen.width}x${screen.height}${where} (${screen.source})\n`);
+      const how = {
+        config: 'from your config',
+        display: 'detected, full display list',
+        detected: 'detected, single screen',
+        fallback: 'NOT DETECTED — guessed',
+      }[screen.source] || screen.source;
+      process.stdout.write(`screen:  ${screen.width}x${screen.height}${where} (${how})\n`);
       if (screen.source === 'fallback') {
         process.stdout.write('         ↳ detection failed; set it with: white-python config screen.width=2560 screen.height=1440\n');
       }
@@ -341,18 +359,26 @@ async function main() {
         process.stdout.write(`browser: NOT FOUND — ${err.message}\n`);
       }
 
+      let staleScope = null;
       for (const scope of ['project', 'user']) {
-        const file = install.settingsPath(scope);
-        let wired = 0;
-        try {
-          const settings = JSON.parse(require('node:fs').readFileSync(file, 'utf8'));
-          for (const entries of Object.values(settings.hooks || {})) {
-            wired += entries.filter((e) => (e.hooks || []).some((h) => String(h.command).includes('white-python.js'))).length;
-          }
-        } catch {
-          /* not installed there */
+        const status = install.hookStatus(scope);
+        const stale = status.hooks.filter((h) => !h.exists);
+        let state;
+        if (!status.hooks.length) state = 'not installed';
+        else if (stale.length) {
+          state = `${status.hooks.length} wired, ${stale.length} STALE`;
+          staleScope = scope;
+        } else state = `${status.hooks.length} wired`;
+        process.stdout.write(`hooks:   ${scope.padEnd(7)} ${state.padEnd(22)} (${status.file})\n`);
+        if (stale.length) {
+          process.stdout.write(`         ↳ they point at ${stale[0].target}, which no longer exists.\n`);
+          process.stdout.write('         ↳ every turn will error until you re-install or remove them.\n');
         }
-        process.stdout.write(`hooks:   ${scope.padEnd(7)} ${wired ? `${wired} wired` : 'not installed'}  (${file})\n`);
+      }
+      if (staleScope) {
+        process.stdout.write(
+          `         ↳ fix: wpy install${staleScope === 'user' ? ' --user' : ''}   (or remove: wpy uninstall${staleScope === 'user' ? ' --user' : ''})\n`
+        );
       }
 
       const rects = require('../src/layout').computeLayout({
@@ -373,6 +399,11 @@ async function main() {
       process.stdout.write(`signin:  ${stored.length}/${config.feeds.length} feeds have a saved profile`);
       process.stdout.write(stored.length < config.feeds.length ? '  — run: wpy login\n' : '\n');
       process.stdout.write(`log:     ${PATHS.log}\n`);
+      if (warnings.length) {
+        process.stdout.write(`\nconfig repairs (${PATHS.config}):\n`);
+        for (const w of warnings) process.stdout.write(`  ! ${w}\n`);
+        process.stdout.write('Re-set them with: wpy config <key>=<value>\n');
+      }
       return;
     }
 

@@ -98,3 +98,130 @@ test('a corrupt settings file fails with a pointed message instead of silent dat
     assert.throws(() => installClaude({ scope: 'project' }), /not valid JSON/);
   });
 });
+
+// --- malformed settings.json ---
+//
+// settings.json is hand-editable and shared with other tools, so it can hold
+// shapes we don't expect. Every case below used to throw a raw TypeError out
+// of `install`, which reads to the user as "installing broke everything".
+
+function writeSettings(text) {
+  fs.mkdirSync('.claude', { recursive: true });
+  fs.writeFileSync(path.join('.claude', 'settings.json'), text);
+}
+
+test('a settings file that is null or an array is treated as empty, not crashed on', () => {
+  for (const junk of ['null', '[]', '"a string"', '42']) {
+    withTempProject(() => {
+      writeSettings(junk);
+      assert.doesNotThrow(() => installClaude({ scope: 'project' }), `threw for ${junk}`);
+      const hooks = readSettings().hooks;
+      for (const { event } of CLAUDE_EVENTS) assert.ok(hooks[event], `${event} missing for ${junk}`);
+    });
+  }
+});
+
+test('junk entries left by other tools are tolerated and preserved', () => {
+  withTempProject(() => {
+    writeSettings(JSON.stringify({ hooks: { Stop: [null, { hooks: 'not-a-list' }] } }));
+    assert.doesNotThrow(() => installClaude({ scope: 'project' }));
+    const stop = readSettings().hooks.Stop;
+    assert.ok(stop.some((e) => e === null), 'a null entry should survive untouched');
+    assert.ok(stop.some((e) => e && e.hooks === 'not-a-list'), 'a foreign entry should survive untouched');
+    assert.ok(stop.some((e) => e && Array.isArray(e.hooks) && String(e.hooks[0].command).includes('white-python.js')));
+  });
+});
+
+test('an unmergeable hooks shape is refused by name, and nothing is written', () => {
+  for (const [junk, needle] of [
+    [JSON.stringify({ hooks: { Stop: 'a string' } }), /hooks\.Stop/],
+    [JSON.stringify({ hooks: { Stop: { a: 1 } } }), /hooks\.Stop/],
+    [JSON.stringify({ hooks: [] }), /"hooks"/],
+  ]) {
+    withTempProject(() => {
+      writeSettings(junk);
+      assert.throws(() => installClaude({ scope: 'project' }), needle);
+      assert.strictEqual(
+        fs.readFileSync(path.join('.claude', 'settings.json'), 'utf8'),
+        junk,
+        'a refused install must not modify the file'
+      );
+    });
+  }
+});
+
+test('uninstall never throws on any of that, and leaves foreign data alone', () => {
+  for (const junk of [
+    JSON.stringify({ hooks: { Stop: 'a string' } }),
+    JSON.stringify({ hooks: [] }),
+    'null',
+    JSON.stringify({ hooks: { Stop: [null] } }),
+  ]) {
+    withTempProject(() => {
+      writeSettings(junk);
+      assert.doesNotThrow(() => uninstallClaude({ scope: 'project' }), `threw for ${junk}`);
+    });
+  }
+});
+
+// --- stale hook paths ---
+//
+// install writes absolute paths, so moving or deleting the clone leaves hooks
+// that fire on every turn and die with a Node module-not-found trace. That
+// looks like the agent itself is broken, so it has to be named explicitly.
+
+const { hookStatus } = require('../src/install');
+
+test('a healthy install reports every hook as present', () => {
+  withTempProject(() => {
+    installClaude({ scope: 'project' });
+    const status = hookStatus('project');
+    assert.strictEqual(status.hooks.length, CLAUDE_EVENTS.length);
+    assert.ok(status.hooks.every((h) => h.exists), 'all hooks should point at a real file');
+    assert.ok(status.hooks.every((h) => h.target && h.target.endsWith('white-python.js')));
+  });
+});
+
+test('a hook pointing at a missing file is reported stale, with the path', () => {
+  withTempProject(() => {
+    installClaude({ scope: 'project' });
+    const file = settingsPath('project');
+    const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const entries of Object.values(settings.hooks)) {
+      for (const entry of entries) {
+        entry.hooks[0].command = entry.hooks[0].command.replace(
+          /("?)[^"\s]*white-python\.js/,
+          '$1/nowhere/at/all/white-python.js'
+        );
+      }
+    }
+    fs.writeFileSync(file, JSON.stringify(settings));
+
+    const status = hookStatus('project');
+    assert.strictEqual(status.hooks.length, CLAUDE_EVENTS.length);
+    assert.ok(status.hooks.every((h) => !h.exists), 'every hook should read as stale');
+    assert.ok(status.hooks.every((h) => h.target === '/nowhere/at/all/white-python.js'));
+  });
+});
+
+test('hookStatus finds our script even when the path contains spaces', () => {
+  withTempProject(() => {
+    installClaude({ scope: 'project' });
+    const file = settingsPath('project');
+    const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const quoted = '"/opt/my node/bin/node" "/Users/a b/tools/white-python/bin/white-python.js" hook start';
+    settings.hooks.UserPromptSubmit = [{ hooks: [{ type: 'command', command: quoted }] }];
+    fs.writeFileSync(file, JSON.stringify(settings));
+
+    const found = hookStatus('project').hooks.find((h) => h.event === 'UserPromptSubmit');
+    assert.strictEqual(found.target, '/Users/a b/tools/white-python/bin/white-python.js');
+    assert.strictEqual(found.exists, false);
+  });
+});
+
+test('hookStatus reports nothing rather than throwing when there are no settings', () => {
+  withTempProject(() => {
+    const status = hookStatus('project');
+    assert.deepStrictEqual(status.hooks, []);
+  });
+});

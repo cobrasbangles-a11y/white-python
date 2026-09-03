@@ -25,7 +25,7 @@ Needs Node 18+ and a Chromium-family browser (Chrome, Brave, Edge, Chromium).
 
 ```sh
 mkdir -p ~/tools && cd ~/tools
-git clone https://github.com/cobrasbangles-a11y/cobra-tool white-python
+git clone https://github.com/cobrasbangles-a11y/white-python
 cd white-python
 npm link
 ```
@@ -289,10 +289,23 @@ your terminal.
 ## Development
 
 ```sh
-npm test        # 66 tests, no dependencies, no network
+npm test        # 86 tests, no dependencies, no network
 WHITE_PYTHON_DEBUG=1 wpy open    # mirror the log to stderr
 WHITE_PYTHON_HOME=/tmp/white-python-scratch wpy open   # sandbox state and profiles
 ```
+
+There is also an end-to-end check that drives a real browser on a real display —
+the layer unit tests can't reach. It runs every command, reads window counts
+back from the window manager, and fails if anything is left open:
+
+```sh
+Xvfb :99 -screen 0 1920x1080x24 &
+DISPLAY=:99 openbox &
+DISPLAY=:99 bash test/integration.sh
+```
+
+It needs a browser, a display and a window manager, so it's deliberately not
+part of `npm test`, which stays dependency-free and headless.
 
 `adapters/` holds copy-pasteable wiring for each agent, including exactly what
 `wpy install` writes into `settings.json` if you'd rather do it by hand.
@@ -315,6 +328,39 @@ close left no windows or processes behind.
 CI runs the suite on all three platforms because the display probes, process
 group kills and browser discovery are genuinely platform-specific, plus a smoke
 job that exercises the CLI on a machine with no browser and no display attached.
+
+## When something goes wrong
+
+```sh
+wpy debug
+```
+
+One diagnostic dump: platform, Node, the raw and normalized config with any
+repairs, display enumeration (including the raw macOS probes when it fails),
+every browser path searched and whether it was found, hook wiring, and the last
+30 log lines. Paste it when reporting a problem.
+
+**If every turn started erroring right after installing**, the most likely cause
+is that the clone moved. `wpy install` writes absolute paths, so if the folder
+is renamed, moved or deleted, each hook still fires and then dies with a Node
+"cannot find module" trace — on every turn. `wpy doctor` names it:
+
+```
+hooks:   project 4 wired, 4 STALE       (~/.claude/settings.json)
+         ↳ they point at /old/path/white-python.js, which no longer exists.
+         ↳ every turn will error until you re-install or remove them.
+```
+
+Re-run `wpy install --user` from the clone's new location, or remove the hooks:
+
+```sh
+wpy uninstall --user
+wpy uninstall            # and in any project you installed into
+```
+
+Bad config values can't break commands any more — they're validated on read and
+on write, repaired where possible, and `wpy doctor` lists what it repaired. If
+you'd rather start clean, delete `~/.white-python/config.json`.
 
 ## Licence
 

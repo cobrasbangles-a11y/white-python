@@ -28,15 +28,21 @@ function run(cmd, args) {
  */
 function framesToDisplays(frames) {
   if (!Array.isArray(frames) || !frames.length) return null;
+  // A probe that returns junk must yield null, not NaN geometry that would
+  // place windows off-screen.
+  const usable = frames.every(
+    (f) => f && ['x', 'y', 'w', 'h', 'fullH'].every((k) => Number.isFinite(Number(f[k])))
+  );
+  if (!usable) return null;
   // screens[0] is the display containing the origin — the primary.
-  const primaryHeight = frames[0].fullH;
+  const primaryHeight = Number(frames[0].fullH);
   return frames.map((f, index) => ({
     index,
     name: index === 0 ? 'Main display' : `Display ${index + 1}`,
-    x: Math.round(f.x),
-    y: Math.round(primaryHeight - (f.y + f.h)),
-    width: Math.round(f.w),
-    height: Math.round(f.h),
+    x: Math.round(Number(f.x)),
+    y: Math.round(primaryHeight - (Number(f.y) + Number(f.h))),
+    width: Math.round(Number(f.w)),
+    height: Math.round(Number(f.h)),
     primary: index === 0,
   }));
 }
@@ -50,18 +56,22 @@ function framesToDisplays(frames) {
  * wrong side of the desktop.
  */
 function detectDarwin() {
+  // .js converts the ObjC NSArray into a real JS array. Iterating the ObjC
+  // object directly (screens.count / objectAtIndex) is brittle across JXA
+  // versions, and every value is coerced with Number() because struct fields
+  // can arrive as ObjC numbers rather than JS ones.
   const script = `
     ObjC.import("AppKit");
-    var screens = $.NSScreen.screens;
     var out = [];
-    for (var i = 0; i < screens.count; i++) {
-      var s = screens.objectAtIndex(i);
+    var screens = $.NSScreen.screens.js;
+    for (var i = 0; i < screens.length; i++) {
+      var s = screens[i];
       var v = s.visibleFrame;
       var f = s.frame;
       out.push({
-        x: v.origin.x, y: v.origin.y,
-        w: v.size.width, h: v.size.height,
-        fullH: f.size.height
+        x: Number(v.origin.x), y: Number(v.origin.y),
+        w: Number(v.size.width), h: Number(v.size.height),
+        fullH: Number(f.size.height)
       });
     }
     JSON.stringify(out);

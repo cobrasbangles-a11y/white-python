@@ -28,3 +28,93 @@ test('audio modes decide which windows get muted', () => {
   assert.deepStrictEqual([0, 1, 2].map((i) => shouldMute('all', i)), [false, false, false]);
   assert.deepStrictEqual([0, 1, 2].map((i) => shouldMute('none', i)), [true, true, true]);
 });
+
+// --- config validation ---
+//
+// Every one of these arrived as a real crash: `wpy config feeds=tiktok` stored
+// the string "tiktok", and doctor, status and open then died on .filter, .join
+// and .map respectively. Config values come from a hand-editable JSON file and
+// from `key=value` on a command line, so nothing can be assumed well-shaped.
+
+const { normalizeConfig } = require('../src/config');
+
+test('a single feed with no comma is still a list', () => {
+  const { config, warnings } = normalizeConfig({ ...DEFAULTS, feeds: 'tiktok' });
+  assert.deepStrictEqual(config.feeds, ['tiktok']);
+  assert.ok(warnings.some((w) => w.startsWith('feeds:')), 'the repair should be reported');
+});
+
+test('a comma-separated feed string splits and trims', () => {
+  const { config } = normalizeConfig({ ...DEFAULTS, feeds: ' tiktok , youtube ' });
+  assert.deepStrictEqual(config.feeds, ['tiktok', 'youtube']);
+});
+
+test('an empty feeds value falls back to the defaults rather than opening nothing', () => {
+  for (const empty of ['', '   ', [], [''], null, undefined, 42]) {
+    const { config } = normalizeConfig({ ...DEFAULTS, feeds: empty });
+    assert.deepStrictEqual(config.feeds, DEFAULTS.feeds, `failed for ${JSON.stringify(empty)}`);
+  }
+});
+
+test('a non-numeric number never reaches the layout as NaN', () => {
+  for (const key of ['openDelayMs', 'maxOpenMs', 'gap']) {
+    const { config } = normalizeConfig({ ...DEFAULTS, [key]: 'abc' });
+    assert.strictEqual(config[key], DEFAULTS[key], `${key} should fall back`);
+    assert.ok(Number.isFinite(config[key]));
+  }
+});
+
+test('negative delays are clamped, not passed through', () => {
+  const { config } = normalizeConfig({ ...DEFAULTS, openDelayMs: -5000, gap: -10 });
+  assert.strictEqual(config.openDelayMs, 0);
+  assert.strictEqual(config.gap, 0);
+});
+
+test('an unknown layout or audio mode falls back instead of rendering nothing', () => {
+  assert.strictEqual(normalizeConfig({ ...DEFAULTS, layout: 'bogus' }).config.layout, DEFAULTS.layout);
+  assert.strictEqual(normalizeConfig({ ...DEFAULTS, audio: 'loud' }).config.audio, DEFAULTS.audio);
+});
+
+test('booleans accept the strings a command line produces', () => {
+  assert.strictEqual(normalizeConfig({ ...DEFAULTS, enabled: 'false' }).config.enabled, false);
+  assert.strictEqual(normalizeConfig({ ...DEFAULTS, enabled: 'true' }).config.enabled, true);
+  assert.strictEqual(normalizeConfig({ ...DEFAULTS, enabled: 'maybe' }).config.enabled, DEFAULTS.enabled);
+});
+
+test('closeOn keeps its shape even when handed a scalar', () => {
+  const { config } = normalizeConfig({ ...DEFAULTS, closeOn: 'nope' });
+  assert.deepStrictEqual(config.closeOn, DEFAULTS.closeOn);
+  const partial = normalizeConfig({ ...DEFAULTS, closeOn: { question: false } }).config;
+  assert.strictEqual(partial.closeOn.question, false);
+  assert.strictEqual(partial.closeOn.done, true, 'unspecified keys keep their defaults');
+});
+
+test('screen and insets accept an object or null, nothing else', () => {
+  assert.strictEqual(normalizeConfig({ ...DEFAULTS, screen: 5 }).config.screen, null);
+  assert.deepStrictEqual(normalizeConfig({ ...DEFAULTS, insets: { top: 25 } }).config.insets, { top: 25 });
+  assert.strictEqual(normalizeConfig({ ...DEFAULTS, insets: 'big' }).config.insets, null);
+});
+
+test('display accepts a name or an index but not an object', () => {
+  assert.strictEqual(normalizeConfig({ ...DEFAULTS, display: 'HDMI-1' }).config.display, 'HDMI-1');
+  assert.strictEqual(normalizeConfig({ ...DEFAULTS, display: 1 }).config.display, 1);
+  assert.strictEqual(normalizeConfig({ ...DEFAULTS, display: { a: 1 } }).config.display, DEFAULTS.display);
+});
+
+test('a fully valid config passes through untouched and silent', () => {
+  const { config, warnings } = normalizeConfig({ ...DEFAULTS });
+  assert.deepStrictEqual(config, DEFAULTS);
+  assert.deepStrictEqual(warnings, []);
+});
+
+test('the normalized config is always usable by the code that consumes it', () => {
+  // The exact operations that crashed: feeds.filter / feeds.join / feeds.map.
+  for (const bad of ['tiktok', '', 42, null, {}, ['']]) {
+    const { config } = normalizeConfig({ ...DEFAULTS, feeds: bad, gap: 'abc', layout: 'x' });
+    assert.doesNotThrow(() => {
+      config.feeds.filter(Boolean);
+      config.feeds.join(', ');
+      config.feeds.map((f) => f);
+    }, `feeds unusable for ${JSON.stringify(bad)}`);
+  }
+});
