@@ -242,6 +242,20 @@ COBRA_HOME=/tmp/cobra-scratch cobra open   # sandbox state and profiles
 `adapters/` holds copy-pasteable wiring for each agent, including exactly what
 `cobra install` writes into `settings.json` if you'd rather do it by hand.
 
+## Status
+
+Built in phases, each one landed and tested:
+
+1. **Core** — hooks, three positioned windows, delayed open, clean close.
+2. **Multi-monitor** — display enumeration on all three platforms, feeds on your second screen.
+3. **Guard rails** — a time cap on a single stretch, and `cobra stats`.
+4. **Any agent** — `--idle` output watching, public `start`/`stop`, adapters.
+5. **CI** — tests on macOS, Linux and Windows across Node 18/20/22.
+
+CI runs the suite on all three platforms because the display probes, process
+group kills and browser discovery are genuinely platform-specific, plus a smoke
+job that exercises the CLI on a machine with no browser and no display attached.
+
 ## Licence
 
 MIT

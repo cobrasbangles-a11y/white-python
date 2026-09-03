@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 
+// Piping into `head`, `grep -q` or a closed pager slams stdout shut mid-write.
+// That's ordinary shell usage, not a crash worth a stack trace.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (err) => {
+    if (err && err.code === 'EPIPE') process.exit(0);
+  });
+}
+
 const { readConfig, writeConfig, setConfigPath, PATHS } = require('../src/config');
 const { FEEDS } = require('../src/feeds');
 const { openWindows, closeWindows, status, runReaper } = require('../src/windows');

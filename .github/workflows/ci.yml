@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    # The display probes, process-group kills and browser discovery are all
+    # platform-specific, so this has to run on all three for real.
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Test
+        run: npm test
+
+  smoke:
+    name: smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Every source file parses
+        shell: bash
+        run: |
+          for f in bin/*.js src/*.js test/*.js; do node --check "$f"; done
+
+      # These must work on a machine with no browser and no display attached:
+      # a CI runner is a decent proxy for a broken user setup.
+      - name: CLI survives a machine with no browser
+        shell: bash
+        run: |
+          node bin/cobra.js version
+          node bin/cobra.js help
+          node bin/cobra.js feeds
+          node bin/cobra.js status
+          node bin/cobra.js stats
+          node bin/cobra.js displays
+          node bin/cobra.js config
+          node bin/cobra.js doctor
+
+      # `cobra stats | head` used to die with an unhandled EPIPE.
+      - name: Output survives being piped into a short reader
+        shell: bash
+        run: |
+          for c in help feeds status stats config doctor displays; do
+            node bin/cobra.js "$c" 2>&1 | head -1 > /dev/null
+            code=${PIPESTATUS[0]}
+            test "$code" -eq 0 || { echo "$c exited $code when piped"; exit 1; }
+          done
+
+      - name: Hooks always exit 0, even when opening is impossible
+        shell: bash
+        run: |
+          echo '{"session_id":"ci"}' | node bin/cobra.js hook start
+          echo '{"session_id":"ci"}' | node bin/cobra.js hook stop --reason question
+          echo '{"session_id":"ci"}' | node bin/cobra.js hook stop --reason done
+
+      - name: Install and uninstall leave settings.json intact
+        shell: bash
+        run: |
+          mkdir -p .claude
+          echo '{"permissions":{"allow":["Bash(npm test)"]}}' > .claude/settings.json
+          node bin/cobra.js install
+          grep -q cobra.js .claude/settings.json
+          node bin/cobra.js uninstall
+          node -e "
+            const s = require('./.claude/settings.json');
+            const expected = { permissions: { allow: ['Bash(npm test)'] } };
+            const actual = JSON.stringify(s);
+            if (actual !== JSON.stringify(expected)) {
+              throw new Error('uninstall did not restore settings.json: ' + actual);
+            }
+          "
+
+      - name: Wrapper passes exit codes through
+        shell: bash
+        run: |
+          node bin/cobra.js wrap -- node -e "process.exit(0)"
+
+          set +e
+          node bin/cobra.js wrap -- node -e "process.exit(7)"
+          code=$?
+          set -e
+          test "$code" -eq 7 || { echo "expected 7, got $code"; exit 1; }
+
+          set +e
+          node bin/cobra.js wrap -- definitely-not-a-real-binary 2>/dev/null
+          missing=$?
+          set -e
+          test "$missing" -eq 127 || { echo "expected 127, got $missing"; exit 1; }
+
+  package:
+    name: package contents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: The published tarball has everything it needs and nothing it doesn't
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e "
+            const files = require('./pack.json')[0].files.map((f) => f.path);
+            const required = ['bin/cobra.js', 'src/windows.js', 'src/displays.js', 'README.md', 'package.json'];
+            for (const f of required) {
+              if (!files.includes(f)) throw new Error('missing from package: ' + f);
+            }
+            const leaked = files.filter((f) => f.startsWith('test/') || f.endsWith('.log'));
+            if (leaked.length) throw new Error('should not be published: ' + leaked.join(', '));
+            console.log('package contains ' + files.length + ' files, all expected');
+          "

@@ -1,7 +1,7 @@
 {
   "name": "cobra-tool",
   "version": "0.1.0",
-  "description": "Pull up TikTok, Instagram Reels and YouTube Shorts side by side while your coding agent works — and close them the moment it needs you.",
+  "description": "Pull up TikTok, Instagram Reels and YouTube Shorts side by side while your coding agent works \u2014 and close them the moment it needs you.",
   "type": "commonjs",
   "main": "src/index.js",
   "bin": {
@@ -16,6 +16,7 @@
   "files": [
     "bin",
     "src",
+    "adapters",
     "README.md"
   ],
   "keywords": [
