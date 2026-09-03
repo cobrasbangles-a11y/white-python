@@ -57,22 +57,45 @@ only want the feeds on genuinely long jobs.
 
 ## Other agents
 
-**Codex** notifies on turn completion but has no turn-start hook, so it gets the
-closing half automatically and the opening half from the wrapper:
+The whole interface is two commands. Anything that can run a shell command when
+work starts and when it ends can drive cobra:
+
+```sh
+cobra start
+cobra stop
+```
+
+**Codex** notifies on turn completion but has no turn-start event, so it gets
+the closing half natively and the opening half from the wrapper:
 
 ```sh
 cobra install --codex
 cobra wrap -- codex
 ```
 
-**Anything else** — any CLI at all — works through the wrapper. It opens the
-feeds while the command runs and closes them when it exits, including on Ctrl-C,
-and passes the exit code straight through:
+**Any other agent CLI** — aider, opencode, whatever you're running — gets the
+full open *and* close behaviour from `--idle`, no hooks required:
+
+```sh
+cobra wrap --idle 8 -- aider
+```
+
+The wrapper watches the command's output and treats 8 seconds of silence from a
+still-running process as *it's waiting for you*: the feeds close, and reopen the
+moment it starts talking again. Pick a number above the agent's normal thinking
+pauses — too low and the feeds flap, too high and you scroll past the question.
+
+Because `--idle` has to pipe output in order to watch it, it isn't right for
+full-screen TUIs that redraw the terminal. For those, plain `cobra wrap` passes
+the terminal through untouched and closes on exit:
 
 ```sh
 cobra wrap -- your-agent --do-the-thing
 cobra wrap -- npm run build
 ```
+
+Exit codes pass straight through in every case. See `adapters/` for
+copy-pasteable snippets, including a Makefile and a drop-in shell wrapper.
 
 ## Multi-monitor
 
@@ -211,13 +234,13 @@ your terminal.
 ## Development
 
 ```sh
-npm test        # 48 tests, no dependencies, no network
+npm test        # 55 tests, no dependencies, no network
 COBRA_DEBUG=1 cobra open    # mirror the log to stderr
 COBRA_HOME=/tmp/cobra-scratch cobra open   # sandbox state and profiles
 ```
 
-`hooks/claude-code.example.json` shows exactly what `cobra install` writes, if
-you'd rather wire it up by hand or adapt it for another agent.
+`adapters/` holds copy-pasteable wiring for each agent, including exactly what
+`cobra install` writes into `settings.json` if you'd rather do it by hand.
 
 ## Licence
 

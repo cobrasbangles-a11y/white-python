@@ -1,0 +1,12 @@
+# ~/.codex/config.toml
+#
+# Codex notifies on turn completion but has no turn-start event, so this covers
+# the closing half. Written for you by: cobra install --codex
+#
+# Replace /path/to with wherever you cloned cobra-tool.
+notify = ["node", "/path/to/cobra-tool/bin/cobra.js", "hook", "codex"]
+
+# For the opening half, launch Codex through the wrapper:
+#     cobra wrap -- codex
+# or let the wrapper handle both ends by watching output instead:
+#     cobra wrap --idle 8 -- codex

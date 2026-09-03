@@ -29,7 +29,10 @@ Everyday
   cobra close [--all]
   cobra status
   cobra stats [--reset]         where your feed time actually went
-  cobra wrap -- <command...>    open while any command runs, close when it exits
+  cobra wrap [--idle N] -- <command...>
+                                open while any command runs, close when it exits.
+                                --idle N also closes after N seconds of silence.
+  cobra start / cobra stop      drive cobra from any tool, one line each
 
 Config
   cobra config                          show the effective config
@@ -255,7 +258,33 @@ async function main() {
 
     case 'wrap': {
       const argvToRun = restArgs.length ? restArgs : positional;
-      process.exitCode = await wrap(argvToRun);
+      const idleSeconds = flags.idle && flags.idle !== true ? Number(flags.idle) : 0;
+      if (flags.idle && !Number.isFinite(idleSeconds)) return fail('--idle expects a number of seconds');
+      process.exitCode = await wrap(argvToRun, { idleSeconds });
+      return;
+    }
+
+    // The universal interface: any tool that can run a shell command on start
+    // and finish can drive cobra with these two lines. Everything else in this
+    // CLI is convenience on top.
+    case 'start': {
+      const sessionId = flags.session && flags.session !== true
+        ? flags.session
+        : process.env.COBRA_SESSION_ID || `manual:${process.cwd()}`;
+      const result = hooks.handleStart({ sessionId, reason: 'external' });
+      if (result.reason === 'disabled') process.stdout.write('cobra is off — run `cobra on` first.\n');
+      else if (result.armed) process.stdout.write(`Armed: feeds open in ${result.delay}ms unless you stop first.\n`);
+      else process.stdout.write('Feeds open.\n');
+      return;
+    }
+
+    case 'stop': {
+      const sessionId = flags.session && flags.session !== true
+        ? flags.session
+        : process.env.COBRA_SESSION_ID || `manual:${process.cwd()}`;
+      const reason = flags.reason && flags.reason !== true ? flags.reason : 'done';
+      const result = hooks.handleStop({ sessionId, reason });
+      process.stdout.write(result.skipped ? `Left up (closeOn.${reason} is off).\n` : `Closed ${result.closed} window(s).\n`);
       return;
     }
 
@@ -324,7 +353,9 @@ async function main() {
       const [event = ''] = positional;
       try {
         const payload = await hooks.readHookPayload();
-        const sessionId = hooks.sessionIdFrom(payload);
+        const sessionId = flags.session && flags.session !== true
+          ? flags.session
+          : hooks.sessionIdFrom(payload);
         if (event === 'start') {
           hooks.handleStart({ sessionId });
         } else if (event === 'stop') {
