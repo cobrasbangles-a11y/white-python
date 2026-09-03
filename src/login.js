@@ -29,16 +29,32 @@ function profileState(feedKey) {
   }
 }
 
+// Waits for Enter on a terminal, a line from a pipe, or EOF — in that last
+// case returning at once, so `wpy login < /dev/null` can't hang. Checking
+// isTTY instead would be wrong: a piped stdin that simply hasn't sent its line
+// yet is still someone waiting, and treating it as non-interactive flashed the
+// windows open and shut in about eight milliseconds.
+const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
+
 function waitForEnter(prompt) {
   return new Promise((resolve) => {
     process.stdout.write(prompt);
-    if (!process.stdin.isTTY) return resolve(); // non-interactive: don't hang
-    process.stdin.resume();
-    process.stdin.setEncoding('utf8');
-    process.stdin.once('data', () => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       process.stdin.pause();
       resolve();
-    });
+    };
+    // Backstop so an unattended run can't hold the windows open forever.
+    const timer = setTimeout(finish, LOGIN_TIMEOUT_MS);
+    timer.unref?.();
+    process.stdin.resume();
+    process.stdin.setEncoding('utf8');
+    process.stdin.once('data', finish);
+    process.stdin.once('end', finish);
+    process.stdin.once('error', finish);
   });
 }
 
@@ -78,13 +94,20 @@ async function login({ feeds, config = readConfig() } = {}) {
   await waitForEnter('\nSign in to each one, then press Enter here to close them… ');
 
   closeWindows({ sessionId: 'login', reason: 'login-done' });
+  // Chromium writes its profile out as it shuts down, so reading immediately
+  // after SIGTERM would report "nothing stored" for a profile that is about
+  // to exist.
+  await new Promise((r) => setTimeout(r, 2500));
 
   process.stdout.write('\nSaved profiles:\n');
   const saved = [];
+  const width = Math.max(...resolved.map((f) => f.label.length), 16);
   for (const feed of resolved) {
     const state = profileState(feed.key);
     if (state.exists) saved.push(feed.key);
-    process.stdout.write(`  ${state.exists ? '✓' : '·'} ${feed.label.padEnd(20)} ${state.exists ? 'profile stored' : 'nothing stored'}\n`);
+    process.stdout.write(
+      `  ${state.exists ? '✓' : '·'} ${feed.label.padEnd(width)}  ${state.exists ? 'profile stored' : 'nothing stored'}\n`
+    );
   }
   process.stdout.write('\nThese sessions persist. If a site signs you out later, run `wpy login` again.\n');
   log('login: profiles stored for', saved.join(', ') || 'nothing');

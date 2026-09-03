@@ -289,7 +289,7 @@ your terminal.
 ## Development
 
 ```sh
-npm test        # 61 tests, no dependencies, no network
+npm test        # 66 tests, no dependencies, no network
 WHITE_PYTHON_DEBUG=1 wpy open    # mirror the log to stderr
 WHITE_PYTHON_HOME=/tmp/white-python-scratch wpy open   # sandbox state and profiles
 ```
