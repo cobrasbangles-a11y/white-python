@@ -111,10 +111,46 @@ cobra on / cobra off     # master switch; leaves your hooks in place
 cobra open               # pull them up right now
 cobra close              # put them away
 cobra status             # what's open, and what's armed
+cobra stats              # where your feed time actually went
 cobra feeds              # list the built-in feeds
 cobra displays           # your monitors, and which one gets the feeds
 cobra doctor             # diagnose browser, screen, layout and hook wiring
 ```
+
+## Guard rails
+
+The feeds open when your agent gets busy — and a long build can be *very* busy.
+Two things keep that honest.
+
+**A time cap.** Close the feeds after a fixed stretch even if the agent is still
+grinding, so a forty-minute test run doesn't cost you forty minutes:
+
+```sh
+cobra config maxOpenMs=900000    # 15 minutes, then they close themselves
+```
+
+Off by default. When it fires, the windows close exactly as they would if the
+agent had finished.
+
+**Honest numbers.** Every stretch is recorded, and `cobra stats` tells you where
+the time actually went:
+
+```
+today      42m 10s    over 6 stretch(es)
+last 7d    3h 18m     over 31 stretch(es)
+all time   9h 04m     over 88 stretch(es)
+
+last 7 days
+  Fri  ████████ 24m 0s
+  Sat  █████████████████████████ 1h 12m
+  ...
+
+longest single stretch: 38m 12s
+```
+
+`cobra stats --reset` clears the history. It lives in
+`~/.cobra-tool/usage.jsonl` — append-only, one JSON object per stretch, yours to
+grep.
 
 ## Config
 
@@ -132,6 +168,7 @@ cobra config closeOn.question=false   # only close when the agent is fully done
 | `layout` | `columns` | `columns` fills the screen; `phones` uses centered 9:16 windows. |
 | `audio` | `primary` | `primary` = leftmost keeps sound. Also `all` or `none`. |
 | `openDelayMs` | `8000` | How long the agent must be busy before anything opens. |
+| `maxOpenMs` | `0` (off) | Hard cap on one stretch, in ms. Closes the feeds even mid-task. |
 | `closeOn` | all on | `question`, `done`, `sessionEnd` — turn any of them off. |
 | `display` | `auto` | Which monitor: `auto` (second if present), `primary`, `secondary`, an index, or an output name. |
 | `browser` | `auto` | A key (`chrome`, `brave`, `edge`, `chromium`, `firefox`) or a full path. |
@@ -174,7 +211,7 @@ your terminal.
 ## Development
 
 ```sh
-npm test        # 39 tests, no dependencies, no network
+npm test        # 48 tests, no dependencies, no network
 COBRA_DEBUG=1 cobra open    # mirror the log to stderr
 COBRA_HOME=/tmp/cobra-scratch cobra open   # sandbox state and profiles
 ```

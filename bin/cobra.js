@@ -3,7 +3,8 @@
 
 const { readConfig, writeConfig, setConfigPath, PATHS } = require('../src/config');
 const { FEEDS } = require('../src/feeds');
-const { openWindows, closeWindows, status } = require('../src/windows');
+const { openWindows, closeWindows, status, runReaper } = require('../src/windows');
+const usage = require('../src/usage');
 const { detectScreen, defaultInsets } = require('../src/screen');
 const { detectDisplays, selectDisplay } = require('../src/displays');
 const { findBrowser } = require('../src/browser');
@@ -27,6 +28,7 @@ Everyday
   cobra open [--feeds a,b,c] [--layout columns|phones]
   cobra close [--all]
   cobra status
+  cobra stats [--reset]         where your feed time actually went
   cobra wrap -- <command...>    open while any command runs, close when it exits
 
 Config
@@ -146,6 +148,47 @@ async function main() {
         process.stdout.write(`  ${key.padEnd(10)} ${feed.label.padEnd(18)} ${feed.url}\n`);
       }
       process.stdout.write('\nAny https:// URL works as a feed too.\n');
+      return;
+    }
+
+    case 'stats': {
+      if (flags.reset) {
+        usage.reset();
+        process.stdout.write('Usage history cleared.\n');
+        return;
+      }
+      const entries = usage.readAll();
+      if (!entries.length) {
+        process.stdout.write('No feed time recorded yet.\n');
+        return;
+      }
+      const s = usage.summarize(entries);
+      const fmt = usage.formatDuration;
+
+      process.stdout.write(`today      ${fmt(s.today.ms).padEnd(10)} over ${s.today.stretches} stretch(es)\n`);
+      process.stdout.write(`last 7d    ${fmt(s.week.ms).padEnd(10)} over ${s.week.stretches} stretch(es)\n`);
+      process.stdout.write(`all time   ${fmt(s.total.ms).padEnd(10)} over ${s.total.stretches} stretch(es)\n`);
+
+      // Scale the bars to the busiest day so the shape is readable regardless
+      // of whether the peak is four minutes or four hours.
+      const peak = Math.max(...s.days.map((d) => d.ms), 1);
+      process.stdout.write('\nlast 7 days\n');
+      for (const day of s.days) {
+        const label = day.date.toLocaleDateString(undefined, { weekday: 'short' });
+        const bar = '█'.repeat(Math.round((day.ms / peak) * 28));
+        process.stdout.write(`  ${label}  ${bar}${bar ? ' ' : ''}${day.ms ? fmt(day.ms) : ''}\n`);
+      }
+
+      const feeds = Object.entries(s.perFeed).sort((a, b) => b[1] - a[1]);
+      if (feeds.length) {
+        process.stdout.write('\nby feed\n');
+        for (const [feed, ms] of feeds) {
+          process.stdout.write(`  ${feed.padEnd(12)} ${fmt(ms)}\n`);
+        }
+      }
+      if (s.longest) {
+        process.stdout.write(`\nlongest single stretch: ${fmt(s.longest.ms)} (${new Date(s.longest.end).toLocaleString()})\n`);
+      }
       return;
     }
 
@@ -295,6 +338,20 @@ async function main() {
         }
       } catch (err) {
         log('hook: swallowed error —', err.stack || err.message);
+      }
+      process.exitCode = 0;
+      return;
+    }
+
+    case '_reap': {
+      try {
+        await runReaper({
+          sessionId: flags.session,
+          openId: flags.openId,
+          after: Number(flags.after) || 0,
+        });
+      } catch (err) {
+        log('reap: swallowed error —', err.stack || err.message);
       }
       process.exitCode = 0;
       return;

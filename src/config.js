@@ -34,6 +34,11 @@ const DEFAULTS = {
   // windows flashing open and shut on "what does this function do" turns.
   openDelayMs: 8000,
 
+  // Hard cap on how long the feeds stay up in one stretch, even if the agent
+  // is still grinding away. 0 disables it. A long build shouldn't cost you the
+  // whole afternoon.
+  maxOpenMs: 0,
+
   // Which agent events close the windows again.
   closeOn: {
     question: true,

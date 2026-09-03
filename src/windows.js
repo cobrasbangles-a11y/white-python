@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
+const crypto = require('node:crypto');
 
 const { PATHS, readConfig, ensureRoot } = require('./config');
 const { resolveFeeds } = require('./feeds');
@@ -11,6 +12,7 @@ const { computeLayout } = require('./layout');
 const { findBrowser, buildArgs } = require('./browser');
 const { reposition } = require('./position');
 const state = require('./state');
+const usage = require('./usage');
 const { log } = require('./log');
 
 function profileDirFor(feedKey) {
@@ -85,6 +87,10 @@ function openWindows({ sessionId, config = readConfig(), feeds, layout, reason =
     log('open:', feed.key, 'pid', child.pid, 'at', `${rect.x},${rect.y} ${rect.width}x${rect.height}`);
   });
 
+  // openId identifies this particular stretch. The reaper only closes if the
+  // id it was armed with is still current, so it can't take down a later
+  // stretch that happens to reuse the session.
+  const openId = crypto.randomUUID();
   state.updateSession(sessionId, {
     sessionId,
     windows: opened,
@@ -92,9 +98,42 @@ function openWindows({ sessionId, config = readConfig(), feeds, layout, reason =
     openReason: reason,
     pendingToken: null,
     browser: browser.key,
+    openId,
   });
 
-  return { opened, screen, browser };
+  const cap = Math.max(0, Number(config.maxOpenMs) || 0);
+  if (cap > 0) armReaper(sessionId, openId, cap);
+
+  return { opened, screen, browser, openId };
+}
+
+/**
+ * Arm the time cap. A detached process sleeps for the cap and then closes the
+ * feeds — but only if this stretch is still the one that's open.
+ */
+function armReaper(sessionId, openId, afterMs) {
+  const cli = path.join(__dirname, '..', 'bin', 'cobra.js');
+  const child = spawn(
+    process.execPath,
+    [cli, '_reap', '--session', sessionId, '--openId', openId, '--after', String(afterMs)],
+    { detached: true, stdio: 'ignore' }
+  );
+  child.unref();
+  log('open: time cap armed for', afterMs, 'ms');
+}
+
+/**
+ * Body of the reaper process.
+ */
+async function runReaper({ sessionId, openId, after }) {
+  await new Promise((resolve) => setTimeout(resolve, after));
+  const session = state.getSession(sessionId);
+  if (!session || session.openId !== openId) {
+    log('reap: stretch already ended for', sessionId, '- standing down');
+    return { closed: 0 };
+  }
+  log('reap: time cap reached after', after, 'ms - closing');
+  return closeWindows({ sessionId, reason: 'time-cap' });
 }
 
 function killPid(pid) {
@@ -128,11 +167,27 @@ function closeWindows({ sessionId, reason = 'manual' } = {}) {
 
   let closed = 0;
   for (const [id, session] of targets) {
+    let killedHere = 0;
     for (const window of session.windows || []) {
       if (killPid(window.pid)) {
-        closed += 1;
+        killedHere += 1;
         log('close:', window.feed, 'pid', window.pid, 'reason', reason);
       }
+    }
+    closed += killedHere;
+
+    // Only log a stretch that actually had windows up, so an idle Stop hook
+    // doesn't pad the numbers with zero-length entries.
+    if (killedHere > 0 && session.openedAt) {
+      const end = Date.now();
+      usage.record({
+        session: id,
+        start: session.openedAt,
+        end,
+        ms: end - session.openedAt,
+        feeds: (session.windows || []).map((w) => w.feed),
+        reason,
+      });
     }
     state.clearSession(id);
   }
@@ -156,4 +211,4 @@ function status() {
   return { enabled: config.enabled, config, sessions };
 }
 
-module.exports = { openWindows, closeWindows, status, profileDirFor, shouldMute };
+module.exports = { openWindows, closeWindows, status, profileDirFor, shouldMute, runReaper, armReaper };
