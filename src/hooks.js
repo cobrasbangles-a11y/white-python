@@ -9,7 +9,7 @@ const { openWindows, closeWindows } = require('./windows');
 const state = require('./state');
 const { log } = require('./log');
 
-const CLI = path.join(__dirname, '..', 'bin', 'cobra.js');
+const CLI = path.join(__dirname, '..', 'bin', 'white-python.js');
 
 // Hooks run in the agent's critical path. Read stdin with a hard deadline so a
 // hosting agent that opens the pipe but never writes can't stall a turn.
@@ -50,7 +50,7 @@ function sessionIdFrom(payload = {}) {
   return (
     payload.session_id ||
     payload.sessionId ||
-    process.env.COBRA_SESSION_ID ||
+    process.env.WHITE_PYTHON_SESSION_ID ||
     `cwd:${payload.cwd || process.cwd()}`
   );
 }

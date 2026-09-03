@@ -13,6 +13,7 @@ const { readConfig, writeConfig, setConfigPath, PATHS } = require('../src/config
 const { FEEDS } = require('../src/feeds');
 const { openWindows, closeWindows, status, runReaper } = require('../src/windows');
 const usage = require('../src/usage');
+const { login, profileState } = require('../src/login');
 const { detectScreen, defaultInsets } = require('../src/screen');
 const { detectDisplays, selectDisplay } = require('../src/displays');
 const { findBrowser } = require('../src/browser');
@@ -22,31 +23,38 @@ const { wrap } = require('../src/wrap');
 const { log } = require('../src/log');
 
 const HELP = `
-cobra — pull up TikTok, Instagram Reels and YouTube Shorts side by side while
-        your coding agent works, and close them the second it needs you.
+white-python — pull up TikTok, Instagram Reels and YouTube Shorts side by side
+               while your coding agent works, and close them the second it
+               needs you.
+
+Both "white-python" and the short "wpy" run this. Examples use wpy.
 
 Setup
-  cobra install [--user]        wire up Claude Code hooks (project, or --user for all repos)
-  cobra install --codex         wire up the Codex turn-complete notifier
-  cobra uninstall [--user]      remove the hooks again
-  cobra doctor                  check browser, screen and hook wiring
+  wpy doctor              check browser, screen and hook wiring FIRST
+  wpy login               open the feeds once so you can sign in; sessions persist
+  wpy install [--user]    wire up Claude Code hooks (this repo, or --user for all)
+  wpy install --codex     wire up the Codex turn-complete notifier
+  wpy uninstall [--user]  remove the hooks again
 
 Everyday
-  cobra on | off                master switch, without touching your hooks
-  cobra open [--feeds a,b,c] [--layout columns|phones]
-  cobra close [--all]
-  cobra status
-  cobra stats [--reset]         where your feed time actually went
-  cobra wrap [--idle N] -- <command...>
-                                open while any command runs, close when it exits.
-                                --idle N also closes after N seconds of silence.
-  cobra start / cobra stop      drive cobra from any tool, one line each
+  wpy on | off            master switch, without touching your hooks
+  wpy open [--feeds a,b,c] [--layout columns|phones]
+  wpy close [--all]
+  wpy status              what is open, and what is armed
+  wpy stats [--reset]     where your feed time actually went
+  wpy feeds               list the built-in feeds
+  wpy displays            your monitors, and which one gets the feeds
+
+Any agent
+  wpy wrap [--idle N] -- <command...>
+                          open while the command runs, close when it exits.
+                          --idle N also closes after N seconds of silence,
+                          which is how a hook-less agent gets the full effect.
+  wpy start / wpy stop    drive it from any tool, one line each
 
 Config
-  cobra config                          show the effective config
-  cobra config <key>=<value> [...]      e.g. layout=phones openDelayMs=0 closeOn.done=false
-  cobra feeds                           list the built-in feeds
-  cobra displays                        list your monitors and which one gets the feeds
+  wpy config                       show the effective config
+  wpy config <key>=<value> [...]   e.g. layout=phones display=primary openDelayMs=0
 
 Files live in ${PATHS.root}
 `;
@@ -74,7 +82,7 @@ function list(value) {
 }
 
 function fail(message) {
-  process.stderr.write(`cobra: ${message}\n`);
+  process.stderr.write(`white-python: ${message}\n`);
   process.exitCode = 1;
 }
 
@@ -101,14 +109,14 @@ async function main() {
       return;
 
     case 'open': {
-      const sessionId = flags.session || process.env.COBRA_SESSION_ID || `manual:${process.cwd()}`;
+      const sessionId = flags.session || process.env.WHITE_PYTHON_SESSION_ID || `manual:${process.cwd()}`;
       const result = openWindows({
         sessionId,
         feeds: list(flags.feeds),
         layout: flags.layout && flags.layout !== true ? flags.layout : undefined,
       });
       if (result.skipped === 'disabled') {
-        process.stdout.write('cobra is off — run `cobra on` first.\n');
+        process.stdout.write('white-python is off — run `white-python on` first.\n');
         return;
       }
       if (result.skipped === 'already-open') {
@@ -122,7 +130,7 @@ async function main() {
     }
 
     case 'close': {
-      const sessionId = flags.all ? 'all' : flags.session || process.env.COBRA_SESSION_ID || `manual:${process.cwd()}`;
+      const sessionId = flags.all ? 'all' : flags.session || process.env.WHITE_PYTHON_SESSION_ID || `manual:${process.cwd()}`;
       const result = closeWindows({ sessionId, reason: 'cli' });
       process.stdout.write(`Closed ${result.closed} window(s).\n`);
       return;
@@ -132,13 +140,13 @@ async function main() {
     case 'off': {
       writeConfig({ enabled: command === 'on' });
       if (command === 'off') closeWindows({ sessionId: 'all', reason: 'disabled' });
-      process.stdout.write(`cobra is ${command}.\n`);
+      process.stdout.write(`white-python is ${command}.\n`);
       return;
     }
 
     case 'status': {
       const s = status();
-      process.stdout.write(`cobra: ${s.enabled ? 'on' : 'off'}\n`);
+      process.stdout.write(`white-python: ${s.enabled ? 'on' : 'off'}\n`);
       process.stdout.write(`feeds: ${s.config.feeds.join(', ')}  layout: ${s.config.layout}  delay: ${s.config.openDelayMs}ms\n`);
       if (!s.sessions.length) {
         process.stdout.write('no windows open\n');
@@ -159,6 +167,11 @@ async function main() {
         process.stdout.write(`  ${key.padEnd(10)} ${feed.label.padEnd(18)} ${feed.url}\n`);
       }
       process.stdout.write('\nAny https:// URL works as a feed too.\n');
+      return;
+    }
+
+    case 'login': {
+      await login({ feeds: list(flags.feeds) });
       return;
     }
 
@@ -208,7 +221,7 @@ async function main() {
       const displays = detectDisplays();
       if (!displays) {
         process.stdout.write('Could not enumerate displays on this machine.\n');
-        process.stdout.write('Set the geometry by hand: cobra config screen.width=2560 screen.height=1440\n');
+        process.stdout.write('Set the geometry by hand: white-python config screen.width=2560 screen.height=1440\n');
         return;
       }
       const chosen = selectDisplay(displays, config.display);
@@ -220,7 +233,7 @@ async function main() {
           `  [${d.index}] ${String(d.name).padEnd(16)} ${d.width}x${d.height} at ${d.x},${d.y}  ${marks}\n`
         );
       }
-      process.stdout.write(`\ndisplay = ${config.display}   (change with: cobra config display=primary)\n`);
+      process.stdout.write(`\ndisplay = ${config.display}   (change with: white-python config display=primary)\n`);
       return;
     }
 
@@ -245,9 +258,9 @@ async function main() {
         process.stdout.write(
           result.changed
             ? `Added the Codex notifier to ${result.file}.\n`
-            : `${result.file} already points at cobra.\n`
+            : `${result.file} already points at white-python.\n`
         );
-        process.stdout.write('Codex only notifies on turn completion, so it closes the feeds.\nTo open them too: cobra wrap -- codex\n');
+        process.stdout.write('Codex only notifies on turn completion, so it closes the feeds.\nTo open them too: white-python wrap -- codex\n');
         return;
       }
       const scope = flags.user ? 'user' : 'project';
@@ -273,14 +286,14 @@ async function main() {
     }
 
     // The universal interface: any tool that can run a shell command on start
-    // and finish can drive cobra with these two lines. Everything else in this
+    // and finish can drive white-python with these two lines. Everything else in this
     // CLI is convenience on top.
     case 'start': {
       const sessionId = flags.session && flags.session !== true
         ? flags.session
-        : process.env.COBRA_SESSION_ID || `manual:${process.cwd()}`;
+        : process.env.WHITE_PYTHON_SESSION_ID || `manual:${process.cwd()}`;
       const result = hooks.handleStart({ sessionId, reason: 'external' });
-      if (result.reason === 'disabled') process.stdout.write('cobra is off — run `cobra on` first.\n');
+      if (result.reason === 'disabled') process.stdout.write('white-python is off — run `white-python on` first.\n');
       else if (result.armed) process.stdout.write(`Armed: feeds open in ${result.delay}ms unless you stop first.\n`);
       else process.stdout.write('Feeds open.\n');
       return;
@@ -289,7 +302,7 @@ async function main() {
     case 'stop': {
       const sessionId = flags.session && flags.session !== true
         ? flags.session
-        : process.env.COBRA_SESSION_ID || `manual:${process.cwd()}`;
+        : process.env.WHITE_PYTHON_SESSION_ID || `manual:${process.cwd()}`;
       const reason = flags.reason && flags.reason !== true ? flags.reason : 'done';
       const result = hooks.handleStop({ sessionId, reason });
       process.stdout.write(result.skipped ? `Left up (closeOn.${reason} is off).\n` : `Closed ${result.closed} window(s).\n`);
@@ -298,14 +311,14 @@ async function main() {
 
     case 'doctor': {
       const config = readConfig();
-      process.stdout.write(`cobra ${require('../package.json').version} on ${process.platform}\n`);
+      process.stdout.write(`white-python ${require('../package.json').version} on ${process.platform}\n`);
       process.stdout.write(`state:   ${config.enabled ? 'on' : 'off'}\n`);
 
       const screen = detectScreen(config);
       const where = screen.x || screen.y ? ` at ${screen.x},${screen.y}` : '';
       process.stdout.write(`screen:  ${screen.width}x${screen.height}${where} (${screen.source})\n`);
       if (screen.source === 'fallback') {
-        process.stdout.write('         ↳ detection failed; set it with: cobra config screen.width=2560 screen.height=1440\n');
+        process.stdout.write('         ↳ detection failed; set it with: white-python config screen.width=2560 screen.height=1440\n');
       }
       const displays = detectDisplays();
       if (displays) {
@@ -334,7 +347,7 @@ async function main() {
         try {
           const settings = JSON.parse(require('node:fs').readFileSync(file, 'utf8'));
           for (const entries of Object.values(settings.hooks || {})) {
-            wired += entries.filter((e) => (e.hooks || []).some((h) => String(h.command).includes('cobra.js'))).length;
+            wired += entries.filter((e) => (e.hooks || []).some((h) => String(h.command).includes('white-python.js'))).length;
           }
         } catch {
           /* not installed there */
@@ -350,6 +363,15 @@ async function main() {
         insets: config.insets || defaultInsets(),
       });
       process.stdout.write(`layout:  ${config.layout} → ${rects.map((r) => `${r.width}x${r.height}@${r.x},${r.y}`).join('  ')}\n`);
+      const stored = config.feeds.filter((f) => {
+        try {
+          return profileState(require('../src/feeds').resolveFeed(f).key).exists;
+        } catch {
+          return false;
+        }
+      });
+      process.stdout.write(`signin:  ${stored.length}/${config.feeds.length} feeds have a saved profile`);
+      process.stdout.write(stored.length < config.feeds.length ? '  — run: wpy login\n' : '\n');
       process.stdout.write(`log:     ${PATHS.log}\n`);
       return;
     }
@@ -411,7 +433,7 @@ async function main() {
     }
 
     default:
-      return fail(`unknown command "${command}". Try: cobra help`);
+      return fail(`unknown command "${command}". Try: white-python help`);
   }
 }
 

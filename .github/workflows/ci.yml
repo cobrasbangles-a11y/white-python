@@ -47,21 +47,21 @@ jobs:
       - name: CLI survives a machine with no browser
         shell: bash
         run: |
-          node bin/cobra.js version
-          node bin/cobra.js help
-          node bin/cobra.js feeds
-          node bin/cobra.js status
-          node bin/cobra.js stats
-          node bin/cobra.js displays
-          node bin/cobra.js config
-          node bin/cobra.js doctor
+          node bin/white-python.js version
+          node bin/white-python.js help
+          node bin/white-python.js feeds
+          node bin/white-python.js status
+          node bin/white-python.js stats
+          node bin/white-python.js displays
+          node bin/white-python.js config
+          node bin/white-python.js doctor
 
-      # `cobra stats | head` used to die with an unhandled EPIPE.
+      # `white-python stats | head` used to die with an unhandled EPIPE.
       - name: Output survives being piped into a short reader
         shell: bash
         run: |
           for c in help feeds status stats config doctor displays; do
-            node bin/cobra.js "$c" 2>&1 | head -1 > /dev/null
+            node bin/white-python.js "$c" 2>&1 | head -1 > /dev/null
             code=${PIPESTATUS[0]}
             test "$code" -eq 0 || { echo "$c exited $code when piped"; exit 1; }
           done
@@ -69,18 +69,18 @@ jobs:
       - name: Hooks always exit 0, even when opening is impossible
         shell: bash
         run: |
-          echo '{"session_id":"ci"}' | node bin/cobra.js hook start
-          echo '{"session_id":"ci"}' | node bin/cobra.js hook stop --reason question
-          echo '{"session_id":"ci"}' | node bin/cobra.js hook stop --reason done
+          echo '{"session_id":"ci"}' | node bin/white-python.js hook start
+          echo '{"session_id":"ci"}' | node bin/white-python.js hook stop --reason question
+          echo '{"session_id":"ci"}' | node bin/white-python.js hook stop --reason done
 
       - name: Install and uninstall leave settings.json intact
         shell: bash
         run: |
           mkdir -p .claude
           echo '{"permissions":{"allow":["Bash(npm test)"]}}' > .claude/settings.json
-          node bin/cobra.js install
-          grep -q cobra.js .claude/settings.json
-          node bin/cobra.js uninstall
+          node bin/white-python.js install
+          grep -q white-python.js .claude/settings.json
+          node bin/white-python.js uninstall
           node -e "
             const s = require('./.claude/settings.json');
             const expected = { permissions: { allow: ['Bash(npm test)'] } };
@@ -93,16 +93,16 @@ jobs:
       - name: Wrapper passes exit codes through
         shell: bash
         run: |
-          node bin/cobra.js wrap -- node -e "process.exit(0)"
+          node bin/white-python.js wrap -- node -e "process.exit(0)"
 
           set +e
-          node bin/cobra.js wrap -- node -e "process.exit(7)"
+          node bin/white-python.js wrap -- node -e "process.exit(7)"
           code=$?
           set -e
           test "$code" -eq 7 || { echo "expected 7, got $code"; exit 1; }
 
           set +e
-          node bin/cobra.js wrap -- definitely-not-a-real-binary 2>/dev/null
+          node bin/white-python.js wrap -- definitely-not-a-real-binary 2>/dev/null
           missing=$?
           set -e
           test "$missing" -eq 127 || { echo "expected 127, got $missing"; exit 1; }
@@ -120,7 +120,7 @@ jobs:
           npm pack --dry-run --json > pack.json
           node -e "
             const files = require('./pack.json')[0].files.map((f) => f.path);
-            const required = ['bin/cobra.js', 'src/windows.js', 'src/displays.js', 'README.md', 'package.json'];
+            const required = ['bin/white-python.js', 'src/windows.js', 'src/displays.js', 'README.md', 'package.json'];
             for (const f of required) {
               if (!files.includes(f)) throw new Error('missing from package: ' + f);
             }

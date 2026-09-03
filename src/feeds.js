@@ -37,7 +37,7 @@ function slugify(value) {
 }
 
 // A feed spec is either a key from the table above or a bare URL, so
-// `cobra open --feeds tiktok,https://news.ycombinator.com` works.
+// `white-python open --feeds tiktok,https://news.ycombinator.com` works.
 function resolveFeed(spec) {
   if (FEEDS[spec]) return { key: spec, ...FEEDS[spec] };
   if (/^https?:\/\//i.test(spec)) {

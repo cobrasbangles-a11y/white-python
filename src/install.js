@@ -18,7 +18,7 @@ const CLAUDE_EVENTS = [
   { event: 'SessionEnd', args: ['hook', 'stop', '--reason', 'session-end'] },
 ];
 
-const MARKER = 'cobra.js';
+const MARKER = 'white-python.js';
 
 function quote(value) {
   return /[\s"']/.test(value) ? `"${value}"` : value;
@@ -90,7 +90,7 @@ function uninstallClaude({ scope = 'project' } = {}) {
 
 /**
  * Codex only notifies on turn completion, so it gets the closing half of the
- * feature. Opening is handled by `cobra wrap -- codex ...`.
+ * feature. Opening is handled by `white-python wrap -- codex ...`.
  */
 function codexSnippet() {
   const cmd = [process.execPath, CLI, 'hook', 'codex'];
@@ -109,8 +109,8 @@ function installCodex() {
   if (contents.includes(MARKER)) {
     return { file, changed: false, line };
   }
-  const stripped = contents.replace(/^notify\s*=.*$/gm, (m) => `# ${m}  # replaced by cobra-tool`);
-  const next = `${stripped.trimEnd()}\n\n# cobra-tool: close the feeds when the turn finishes\n${line}\n`;
+  const stripped = contents.replace(/^notify\s*=.*$/gm, (m) => `# ${m}  # replaced by white-python`);
+  const next = `${stripped.trimEnd()}\n\n# white-python: close the feeds when the turn finishes\n${line}\n`;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, next.trimStart());
   return { file, changed: true, line };

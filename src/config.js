@@ -5,13 +5,13 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const HOME = os.homedir();
-const ROOT = process.env.COBRA_HOME || path.join(HOME, '.cobra-tool');
+const ROOT = process.env.WHITE_PYTHON_HOME || path.join(HOME, '.white-python');
 
 const PATHS = {
   root: ROOT,
   config: path.join(ROOT, 'config.json'),
   state: path.join(ROOT, 'state.json'),
-  log: path.join(ROOT, 'cobra.log'),
+  log: path.join(ROOT, 'white-python.log'),
   profiles: path.join(ROOT, 'profiles'),
 };
 
@@ -70,7 +70,7 @@ const DEFAULTS = {
   // Gap between adjacent windows, in points.
   gap: 0,
 
-  // Master switch. `cobra off` flips this without touching your hooks.
+  // Master switch. `white-python off` flips this without touching your hooks.
   enabled: true,
 };
 

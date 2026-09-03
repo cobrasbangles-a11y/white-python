@@ -9,7 +9,7 @@ const { ActivityMonitor } = require('./activity');
 const { log } = require('./log');
 
 /**
- * `cobra wrap [--idle N] -- <command...>`
+ * `white-python wrap [--idle N] -- <command...>`
  *
  * The escape hatch for agents with no hook system: open the feeds while the
  * command runs, close them the moment it exits — including on Ctrl-C.
@@ -20,7 +20,7 @@ const { log } = require('./log');
  * same open/close behaviour Claude Code gets from real hooks.
  */
 function wrap(argv, { config = readConfig(), idleSeconds = 0 } = {}) {
-  if (!argv.length) throw new Error('Nothing to run. Usage: cobra wrap -- <command> [args...]');
+  if (!argv.length) throw new Error('Nothing to run. Usage: white-python wrap -- <command> [args...]');
 
   const sessionId = `wrap:${crypto.randomUUID()}`;
   const delay = Math.max(0, Number(config.openDelayMs) || 0);
@@ -38,7 +38,7 @@ function wrap(argv, { config = readConfig(), idleSeconds = 0 } = {}) {
     } catch (err) {
       // A missing browser must never take the user's agent down with it.
       log('wrap: open failed —', err.message);
-      process.stderr.write(`cobra: ${err.message}\n`);
+      process.stderr.write(`white-python: ${err.message}\n`);
     }
   };
 
@@ -122,7 +122,7 @@ function wrap(argv, { config = readConfig(), idleSeconds = 0 } = {}) {
   return new Promise((resolve) => {
     child.on('error', (err) => {
       cleanup();
-      process.stderr.write(`cobra: could not run "${argv[0]}": ${err.message}\n`);
+      process.stderr.write(`white-python: could not run "${argv[0]}": ${err.message}\n`);
       resolve(127);
     });
     child.on('close', (code, signal) => {
