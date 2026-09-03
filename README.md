@@ -289,7 +289,7 @@ your terminal.
 ## Development
 
 ```sh
-npm test        # 66 tests, no dependencies, no network
+npm test        # 78 tests, no dependencies, no network
 WHITE_PYTHON_DEBUG=1 wpy open    # mirror the log to stderr
 WHITE_PYTHON_HOME=/tmp/white-python-scratch wpy open   # sandbox state and profiles
 ```
@@ -315,6 +315,29 @@ close left no windows or processes behind.
 CI runs the suite on all three platforms because the display probes, process
 group kills and browser discovery are genuinely platform-specific, plus a smoke
 job that exercises the CLI on a machine with no browser and no display attached.
+
+## When something goes wrong
+
+```sh
+wpy debug
+```
+
+One diagnostic dump: platform, Node, the raw and normalized config with any
+repairs, display enumeration (including the raw macOS probes when it fails),
+every browser path searched and whether it was found, hook wiring, and the last
+30 log lines. Paste it when reporting a problem.
+
+If the hooks themselves are misbehaving, this removes them and leaves the rest
+of your settings alone:
+
+```sh
+wpy uninstall --user
+wpy uninstall            # and in any project you installed into
+```
+
+Bad config values can't break commands any more — they're validated on read and
+on write, repaired where possible, and `wpy doctor` lists what it repaired. If
+you'd rather start clean, delete `~/.white-python/config.json`.
 
 ## Licence
 
