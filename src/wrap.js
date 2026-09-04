@@ -115,8 +115,12 @@ function wrap(argv, { config = readConfig(), idleSeconds = 0 } = {}) {
       }
     });
   };
+  // SIGHUP is what a closing terminal sends. Without it, quitting the terminal
+  // left all three windows on screen with nothing able to address them.
   forward('SIGINT');
   forward('SIGTERM');
+  forward('SIGHUP');
+  forward('SIGQUIT');
   process.on('exit', cleanup);
 
   return new Promise((resolve) => {

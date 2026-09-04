@@ -4,7 +4,18 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const { readConfig } = require('./config');
+const { readConfig, DEFAULTS } = require('./config');
+
+// Closing must work even when the config file is unreadable. Reading it is a
+// convenience; failing to read it must never leave windows on screen.
+function safeConfig() {
+  try {
+    return readConfig();
+  } catch (err) {
+    log('config unreadable, using defaults —', err.message);
+    return { ...DEFAULTS };
+  }
+}
 const { openWindows, closeWindows } = require('./windows');
 const state = require('./state');
 const { log } = require('./log');
@@ -60,7 +71,7 @@ function sessionIdFrom(payload = {}) {
  * the turn has been running for openDelayMs — a two-second turn shouldn't
  * summon three browser windows.
  */
-function handleStart({ sessionId, config = readConfig(), reason = 'agent-busy' }) {
+function handleStart({ sessionId, config = safeConfig(), reason = 'agent-busy' }) {
   if (!config.enabled) {
     log('hook start: disabled, ignoring');
     return { armed: false, reason: 'disabled' };
@@ -92,7 +103,7 @@ function handleStart({ sessionId, config = readConfig(), reason = 'agent-busy' }
  * The agent wants something (a question, a permission prompt) or has finished.
  * Either way the windows go away.
  */
-function handleStop({ sessionId, config = readConfig(), reason = 'done' }) {
+function handleStop({ sessionId, config = safeConfig(), reason = 'done' }) {
   const gate = {
     question: config.closeOn?.question !== false,
     done: config.closeOn?.done !== false,
@@ -123,7 +134,7 @@ async function runWatcher({ sessionId, token, delay }) {
     log('watch: token superseded or cancelled for', sessionId, '- standing down');
     return { opened: false, reason: 'cancelled' };
   }
-  const config = readConfig();
+  const config = safeConfig();
   if (!config.enabled) return { opened: false, reason: 'disabled' };
 
   // Opening is not instant: detecting displays and finding a browser both shell
