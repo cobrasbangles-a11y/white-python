@@ -47,6 +47,13 @@ function openWindows({ sessionId, config = readConfig(), feeds, layout, reason =
 
   const feedSpecs = feeds && feeds.length ? feeds : config.feeds;
   const resolved = resolveFeeds(feedSpecs);
+
+  // A feed's profile directory can only have one owner. Chromium routes every
+  // launch sharing a --user-data-dir into the single process that already owns
+  // it, so a second session's spawns hand off and exit immediately — leaving
+  // this session tracking dead pids while live windows belong to someone else,
+  // and making its own close a silent no-op. Take ownership first.
+  releaseProfiles(sessionId, resolved.map((f) => f.key));
   const screen = detectScreen(config);
   const rects = computeLayout({
     screen,
@@ -92,6 +99,7 @@ function openWindows({ sessionId, config = readConfig(), feeds, layout, reason =
   // stretch that happens to reuse the session.
   const openId = crypto.randomUUID();
   state.updateSession(sessionId, {
+    stopSeq: state.stopSeqOf(sessionId),
     sessionId,
     windows: opened,
     openedAt: Date.now(),
@@ -134,6 +142,25 @@ async function runReaper({ sessionId, openId, after }) {
   }
   log('reap: time cap reached after', after, 'ms - closing');
   return closeWindows({ sessionId, reason: 'time-cap' });
+}
+
+/**
+ * Close any OTHER session's windows that use these feed profiles.
+ *
+ * Two sessions cannot both own a profile directory, so the older one is closed
+ * rather than left in a state where neither can close it.
+ */
+function releaseProfiles(sessionId, feedKeys) {
+  const wanted = new Set(feedKeys);
+  const all = state.readState();
+  for (const [id, session] of Object.entries(all.sessions)) {
+    if (id === sessionId) continue;
+    const clash = (session.windows || []).some((w) => wanted.has(w.feed) && state.isAlive(w.pid));
+    if (clash) {
+      log('open: session', id, 'already owns one of these profiles - closing it first');
+      closeWindows({ sessionId: id, reason: 'profile-taken-over' });
+    }
+  }
 }
 
 function killPid(pid) {
@@ -189,7 +216,7 @@ function closeWindows({ sessionId, reason = 'manual' } = {}) {
         reason,
       });
     }
-    state.clearSession(id);
+    state.markStopped(id);
   }
   if (closed === 0) log('close: nothing to close for', sessionId || 'all');
   return { closed, sessions: targets.length };

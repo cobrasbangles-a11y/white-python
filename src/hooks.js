@@ -126,8 +126,22 @@ async function runWatcher({ sessionId, token, delay }) {
   const config = readConfig();
   if (!config.enabled) return { opened: false, reason: 'disabled' };
 
+  // Opening is not instant: detecting displays and finding a browser both shell
+  // out, and three spawns follow. A stop arriving inside that window would find
+  // nothing recorded yet and close nothing, and this open would then commit on
+  // top of it — leaving windows up after the agent had already finished.
+  // So snapshot the stop counter, and close immediately if it moved.
+  const stopSeqBefore = state.stopSeqOf(sessionId);
+
   log('watch: agent still busy after', delay, 'ms - opening feeds');
   const result = openWindows({ sessionId, config, reason: session.openReason || 'agent-busy' });
+
+  if (state.stopSeqOf(sessionId) !== stopSeqBefore) {
+    log('watch: a stop landed while opening - closing again immediately');
+    closeWindows({ sessionId, reason: 'superseded' });
+    return { opened: false, reason: 'superseded' };
+  }
+
   return { opened: result.opened.length > 0, ...result };
 }
 
