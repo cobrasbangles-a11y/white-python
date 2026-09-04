@@ -70,6 +70,32 @@ function updateSession(sessionId, patch) {
   return state.sessions[sessionId];
 }
 
+/**
+ * Record that this session was told to stop.
+ *
+ * Deleting the record outright loses the fact that a stop happened, which
+ * matters when a watcher is mid-open at the time: it would commit its windows
+ * on top of the deletion and leave them up forever. The tombstone keeps a
+ * monotonic stopSeq so an in-flight open can notice it was superseded.
+ */
+function markStopped(sessionId) {
+  const state = readState();
+  const current = state.sessions[sessionId] || {};
+  state.sessions[sessionId] = {
+    sessionId,
+    windows: [],
+    pendingToken: null,
+    stopSeq: (current.stopSeq || 0) + 1,
+  };
+  writeState(state);
+  return state.sessions[sessionId].stopSeq;
+}
+
+function stopSeqOf(sessionId) {
+  const session = readState().sessions[sessionId];
+  return (session && session.stopSeq) || 0;
+}
+
 function clearSession(sessionId) {
   const state = readState();
   delete state.sessions[sessionId];
@@ -84,7 +110,7 @@ function pruneState() {
   for (const [id, session] of Object.entries(state.sessions)) {
     const windows = (session.windows || []).filter((w) => isAlive(w.pid));
     if (windows.length !== (session.windows || []).length) changed = true;
-    if (windows.length === 0 && !session.pendingToken) {
+    if (windows.length === 0 && !session.pendingToken && !session.stopSeq) {
       delete state.sessions[id];
       changed = true;
     } else {
@@ -95,4 +121,14 @@ function pruneState() {
   return state;
 }
 
-module.exports = { readState, writeState, getSession, updateSession, clearSession, pruneState, isAlive };
+module.exports = {
+  readState,
+  writeState,
+  getSession,
+  updateSession,
+  clearSession,
+  markStopped,
+  stopSeqOf,
+  pruneState,
+  isAlive,
+};

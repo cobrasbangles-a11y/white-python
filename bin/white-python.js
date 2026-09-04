@@ -132,7 +132,11 @@ async function main() {
     }
 
     case 'close': {
-      const sessionId = flags.all ? 'all' : flags.session || process.env.WHITE_PYTHON_SESSION_ID || `manual:${process.cwd()}`;
+      // Default to closing everything. Windows opened by the hooks live under
+      // the agent's own session id and those opened by `wrap` under a random
+      // one, so defaulting to a cwd-derived id made the documented "put them
+      // away" command silently close nothing.
+      const sessionId = flags.session && flags.session !== true ? flags.session : 'all';
       const result = closeWindows({ sessionId, reason: 'cli' });
       process.stdout.write(`Closed ${result.closed} window(s).\n`);
       return;
@@ -245,11 +249,13 @@ async function main() {
         return;
       }
       let updated;
+      const turningOff = positional.some((p) => /^enabled=(false|0)$/.test(p));
       for (const pair of positional) {
         const eq = pair.indexOf('=');
         if (eq === -1) return fail(`config expects key=value, got "${pair}"`);
         updated = setConfigPath(pair.slice(0, eq), pair.slice(eq + 1));
       }
+      if (turningOff) closeWindows({ sessionId: 'all', reason: 'disabled' });
       process.stdout.write(`${JSON.stringify(updated, null, 2)}\n`);
       return;
     }
@@ -423,8 +429,11 @@ async function main() {
           const reason = flags.reason && flags.reason !== true ? flags.reason : 'done';
           hooks.handleStop({ sessionId, reason });
         } else if (event === 'codex') {
-          // Codex passes its notification JSON as argv, not stdin.
-          hooks.handleStop({ sessionId: hooks.sessionIdFrom({}), reason: 'done' });
+          // Codex passes its notification JSON as argv, not stdin, and gives no
+          // session identity at all. Targeting a cwd-derived id could never
+          // match the random id `wrap` opens under, so the documented Codex
+          // close path never fired. One turn is in flight at a time: close all.
+          hooks.handleStop({ sessionId: 'all', reason: 'done' });
         } else {
           log('hook: unknown event', event);
         }

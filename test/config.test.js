@@ -118,3 +118,42 @@ test('the normalized config is always usable by the code that consumes it', () =
     }, `feeds unusable for ${JSON.stringify(bad)}`);
   }
 });
+
+// --- stop-during-open race ---
+//
+// Opening is not instant: detecting displays and finding a browser both shell
+// out, then three spawns follow. A stop arriving inside that window used to
+// find nothing recorded yet, close nothing, and then be overwritten by the
+// open committing — leaving windows up after the agent had already finished.
+
+const fsx = require('node:fs');
+const osx = require('node:os');
+const pathx = require('node:path');
+
+test('a stop leaves a tombstone so an in-flight open can tell it was superseded', () => {
+  const home = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'wp-race-'));
+  const prev = process.env.WHITE_PYTHON_HOME;
+  process.env.WHITE_PYTHON_HOME = home;
+  // Fresh module registry so state.js picks up the temp home.
+  for (const k of Object.keys(require.cache)) delete require.cache[k];
+  const state = require('../src/state');
+  try {
+    state.updateSession('s', { sessionId: 's', pendingToken: 'T' });
+    const before = state.stopSeqOf('s');
+
+    const seq = state.markStopped('s');
+    assert.strictEqual(seq, before + 1, 'a stop must advance the counter');
+    assert.notStrictEqual(state.stopSeqOf('s'), before, 'an in-flight open must be able to see it');
+
+    // The record survives so the counter is not lost.
+    assert.ok(state.getSession('s'), 'stop must leave a tombstone, not delete the record');
+    assert.deepStrictEqual(state.getSession('s').windows, [], 'no windows should remain recorded');
+
+    // Two stops in a row keep advancing, so repeated turns stay distinguishable.
+    assert.strictEqual(state.markStopped('s'), seq + 1);
+  } finally {
+    process.env.WHITE_PYTHON_HOME = prev;
+    for (const k of Object.keys(require.cache)) delete require.cache[k];
+    fsx.rmSync(home, { recursive: true, force: true });
+  }
+});

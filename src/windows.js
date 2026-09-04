@@ -47,6 +47,13 @@ function openWindows({ sessionId, config = readConfig(), feeds, layout, reason =
 
   const feedSpecs = feeds && feeds.length ? feeds : config.feeds;
   const resolved = resolveFeeds(feedSpecs);
+
+  // A feed's profile directory can only have one owner. Chromium routes every
+  // launch sharing a --user-data-dir into the single process that already owns
+  // it, so a second session's spawns hand off and exit immediately — leaving
+  // this session tracking dead pids while live windows belong to someone else,
+  // and making its own close a silent no-op. Take ownership first.
+  releaseProfiles(sessionId, resolved.map((f) => f.key));
   const screen = detectScreen(config);
   const rects = computeLayout({
     screen,
@@ -92,6 +99,7 @@ function openWindows({ sessionId, config = readConfig(), feeds, layout, reason =
   // stretch that happens to reuse the session.
   const openId = crypto.randomUUID();
   state.updateSession(sessionId, {
+    stopSeq: state.stopSeqOf(sessionId),
     sessionId,
     windows: opened,
     openedAt: Date.now(),
@@ -136,24 +144,73 @@ async function runReaper({ sessionId, openId, after }) {
   return closeWindows({ sessionId, reason: 'time-cap' });
 }
 
-function killPid(pid) {
-  if (!state.isAlive(pid)) return false;
+/**
+ * Close any OTHER session's windows that use these feed profiles.
+ *
+ * Two sessions cannot both own a profile directory, so the older one is closed
+ * rather than left in a state where neither can close it.
+ */
+function releaseProfiles(sessionId, feedKeys) {
+  const wanted = new Set(feedKeys);
+  const all = state.readState();
+  for (const [id, session] of Object.entries(all.sessions)) {
+    if (id === sessionId) continue;
+    const clash = (session.windows || []).some((w) => wanted.has(w.feed) && state.isAlive(w.pid));
+    if (clash) {
+      log('open: session', id, 'already owns one of these profiles - closing it first');
+      closeWindows({ sessionId: id, reason: 'profile-taken-over' });
+    }
+  }
+}
+
+// A synchronous pause, so a hook can confirm the browser actually died before
+// it reports success. Node has no sync sleep; this is the standard trick.
+function sleepSync(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    /* SharedArrayBuffer unavailable: skip the grace period */
+  }
+}
+
+function signal(pid, sig) {
   try {
     if (process.platform === 'win32') {
       execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', timeout: 5000 });
     } else {
       // Negative pid = the whole process group we created with detached:true.
       try {
-        process.kill(-pid, 'SIGTERM');
+        process.kill(-pid, sig);
       } catch {
-        process.kill(pid, 'SIGTERM');
+        process.kill(pid, sig);
       }
     }
     return true;
   } catch (err) {
-    log('close: failed to kill', pid, '-', err.message);
+    log('close: signal', sig, 'to', pid, 'failed -', err.message);
     return false;
   }
+}
+
+/**
+ * Ask the browser to quit, then make sure it did.
+ *
+ * Reporting "closed" on the strength of one un-escalated SIGTERM meant a
+ * browser that ignored it stayed on screen while the record was thrown away,
+ * leaving nothing able to try again.
+ */
+function killPid(pid) {
+  if (!state.isAlive(pid)) return false;
+  signal(pid, 'SIGTERM');
+  if (!state.isAlive(pid)) return true;
+  sleepSync(400);
+  if (!state.isAlive(pid)) return true;
+  log('close: pid', pid, 'ignored SIGTERM - escalating');
+  signal(pid, 'SIGKILL');
+  sleepSync(200);
+  const gone = !state.isAlive(pid);
+  if (!gone) log('close: pid', pid, 'SURVIVED - keeping it on record to retry');
+  return gone;
 }
 
 /**
@@ -168,10 +225,13 @@ function closeWindows({ sessionId, reason = 'manual' } = {}) {
   let closed = 0;
   for (const [id, session] of targets) {
     let killedHere = 0;
+    const survivors = [];
     for (const window of session.windows || []) {
       if (killPid(window.pid)) {
         killedHere += 1;
         log('close:', window.feed, 'pid', window.pid, 'reason', reason);
+      } else if (state.isAlive(window.pid)) {
+        survivors.push(window);
       }
     }
     closed += killedHere;
@@ -189,7 +249,13 @@ function closeWindows({ sessionId, reason = 'manual' } = {}) {
         reason,
       });
     }
-    state.clearSession(id);
+    state.markStopped(id);
+    // Anything that refused to die stays on the books so the next close, the
+    // time cap, or `close --all` can have another go at it.
+    if (survivors.length) {
+      state.updateSession(id, { sessionId: id, windows: survivors });
+      log('close:', survivors.length, 'window(s) survived and remain tracked');
+    }
   }
   if (closed === 0) log('close: nothing to close for', sessionId || 'all');
   return { closed, sessions: targets.length };
