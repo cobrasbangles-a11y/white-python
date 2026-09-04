@@ -178,18 +178,111 @@ bottom-left-origin with +Y upward while browsers place windows top-left-origin
 with +Y downward, so white-python flips the coordinates — without that, a monitor
 stacked above your laptop would get windows placed below it.
 
-## Everyday use
+## All commands
+
+Everything the CLI accepts. `white-python` and `wpy` are the same program.
+
+### Setup
 
 ```sh
-wpy on / wpy off   # master switch; leaves your hooks in place
-wpy open           # pull them up right now
-wpy close          # put them away
-wpy status         # what's open, and what's armed
-wpy stats          # where your feed time actually went
-wpy login          # sign in to the feeds (one time)
-wpy feeds          # list the built-in feeds
-wpy displays       # your monitors, and which one gets the feeds
-wpy doctor         # diagnose browser, screen, layout and hook wiring
+wpy doctor                    # browser, screen, hooks, sign-in — run this FIRST
+wpy debug                     # full diagnostic dump; paste this when reporting a problem
+wpy login                     # open each feed once so you can sign in; sessions persist
+wpy login --feeds tiktok      # sign in to just one
+wpy install                   # wire up Claude Code hooks for this repo
+wpy install --user            # ...for every repo you open
+wpy install --codex           # wire up the Codex turn-complete notifier
+wpy uninstall                 # remove this repo's hooks
+wpy uninstall --user          # remove the global ones
+wpy version                   # print the version
+wpy help                      # this list, in the terminal
+```
+
+### Everyday
+
+```sh
+wpy on                        # master switch on
+wpy off                       # off, and close anything open; hooks stay wired
+wpy open                      # pull the feeds up right now
+wpy close                     # put them away
+wpy close --all               # close every session's windows, not just this one
+wpy status                    # what's open, and what's armed but not yet open
+wpy stats                     # where your feed time actually went
+wpy stats --reset             # clear that history
+wpy feeds                     # the built-in feeds and their URLs
+wpy displays                  # your monitors, and which one gets the feeds
+```
+
+### One-off overrides
+
+These change a single run without touching your saved config:
+
+```sh
+wpy open --feeds tiktok,youtube
+wpy open --feeds https://news.ycombinator.com     # any https:// URL works as a feed
+wpy open --layout phones                          # columns | phones
+wpy open --session build-42                       # track this set of windows separately
+wpy close --session build-42
+```
+
+### Any agent, no hooks needed
+
+```sh
+wpy wrap -- <command...>            # open while it runs, close when it exits
+wpy wrap -- codex
+wpy wrap -- npm test
+wpy wrap --idle 8 -- aider          # ALSO close after 8s of silence = it's waiting on you
+wpy start                           # drive it from any tool: work is starting
+wpy stop                            # ...and has finished
+wpy start --session my-job          # name the session if you run several at once
+wpy stop --session my-job
+wpy stop --reason question          # question | done | session-end
+```
+
+### Config
+
+```sh
+wpy config                                  # show everything in effect
+wpy config <key>=<value> [<key>=<value>...] # set one or more
+
+wpy config feeds=tiktok,instagram,youtube   # which feeds, left to right
+wpy config layout=phones                    # columns | phones
+wpy config display=primary                  # auto | primary | secondary | 1 | HDMI-1
+wpy config audio=none                       # primary | all | none
+wpy config openDelayMs=3000                 # agent must be busy this long before opening
+wpy config maxOpenMs=900000                 # close after 15 min even if still working (0 = never)
+wpy config closeOn.question=false           # only close when fully done
+wpy config closeOn.done=false
+wpy config closeOn.sessionEnd=false
+wpy config browser=/path/to/chrome          # auto | chrome | brave | edge | chromium | firefox | a path
+wpy config appMode=false                    # normal windows with tabs and an address bar
+wpy config gap=16                           # px between windows
+wpy config screen.width=2560 screen.height=1440   # override screen detection
+wpy config insets.top=25                    # keep space clear at an edge
+wpy config enabled=false                    # same as `wpy off`
+```
+
+Bad values can't break anything: config is validated on read and on write,
+repaired where possible, and `wpy doctor` lists whatever it repaired.
+
+### Files
+
+```sh
+~/.white-python/config.json             # your settings
+~/.white-python/state.json              # what's currently open
+~/.white-python/usage.jsonl             # one line per stretch, for `wpy stats`
+~/.white-python/white-python.log        # what the hooks did, and why
+~/.white-python/profiles/<feed>/        # one browser profile per feed; your logins live here
+```
+
+### Recovery
+
+```sh
+wpy uninstall --user                    # hooks misbehaving? rip them out, settings untouched
+rm ~/.white-python/config.json          # back to default settings
+rm -rf ~/.white-python                  # full reset, including logins
+tail -30 ~/.white-python/white-python.log
+WHITE_PYTHON_DEBUG=1 wpy open           # mirror the log to stderr as it happens
 ```
 
 ## Guard rails
