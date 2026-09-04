@@ -21,6 +21,9 @@ the feeds vanish and you're looking at your terminal again.
 
 ## Install
 
+**On a Mac? See [docs/macos.md](docs/macos.md)** — the same steps with the
+Homebrew, zsh, `/Applications` and Automation-permission details filled in.
+
 Needs Node 18+ and a Chromium-family browser (Chrome, Brave, Edge, Chromium).
 
 ```sh
