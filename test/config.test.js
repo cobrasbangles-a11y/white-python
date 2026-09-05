@@ -167,7 +167,14 @@ test('a live pid whose command line lacks our profile dir is not ours', () => {
   const stx = require('../src/state');
   // Built at runtime so the marker can never appear in this process's own argv.
   const foreign = ['', 'tmp', `wp-${(987654).toString(36)}`, 'profile'].join('/');
-  assert.strictEqual(stx.isOurProcess(process.pid, foreign), false);
+
+  // The contract is conditional on being able to read the command line at all.
+  // Asserting `false` unconditionally encoded a platform assumption and failed
+  // on Windows, where the lookup can legitimately come back empty — in which
+  // case the documented behaviour is to fall back to the pid check rather than
+  // refuse to close a real window.
+  const readable = stx.commandLineOf(process.pid) !== null;
+  assert.strictEqual(stx.isOurProcess(process.pid, foreign), !readable);
 });
 
 test('a live pid whose command line does contain the marker is ours', () => {

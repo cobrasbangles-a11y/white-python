@@ -64,7 +64,24 @@ function commandLineOf(pid) {
       return null;
     }
   }
-  if (process.platform === 'win32') return null; // no cheap equivalent
+  if (process.platform === 'win32') {
+    // Slower than /proc, but a close happens rarely and signalling the wrong
+    // process is worse than a few hundred milliseconds.
+    try {
+      return execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `(Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}").CommandLine`,
+        ],
+        { encoding: 'utf8', timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] }
+      );
+    } catch {
+      return null;
+    }
+  }
   try {
     return execFileSync('ps', ['-o', 'args=', '-p', String(pid)], {
       encoding: 'utf8',
