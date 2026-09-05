@@ -66,6 +66,26 @@ jobs:
             test "$code" -eq 0 || { echo "$c exited $code when piped"; exit 1; }
           done
 
+      # The recycled-pid guard is only real if the command line can be read.
+      - name: A process's command line is readable on this platform
+        shell: bash
+        run: |
+          node -e "
+            const s = require('./src/state');
+            const cmd = s.commandLineOf(process.pid);
+            if (cmd === null) {
+              console.log('command line NOT readable on ' + process.platform +
+                          ' — the recycled-pid guard falls back to the pid check here');
+              process.exit(0);
+            }
+            if (!/node/i.test(cmd)) throw new Error('unexpected command line: ' + cmd);
+            const foreign = ['', 'tmp', 'wp-zzz-not-in-argv', 'profile'].join('/');
+            if (s.isOurProcess(process.pid, foreign)) {
+              throw new Error('a foreign marker must NOT match: ' + cmd);
+            }
+            console.log('command line readable and the guard discriminates correctly');
+          "
+
       - name: Hooks always exit 0, even when opening is impossible
         shell: bash
         run: |

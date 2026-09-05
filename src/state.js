@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { PATHS, ensureRoot } = require('./config');
 const { log } = require('./log');
@@ -47,6 +48,77 @@ function isZombie(pid) {
   }
 }
 
+/**
+ * Read a live process's command line, or null if that isn't possible.
+ *
+ * Used to prove a pid still belongs to the browser we launched. Pids are
+ * recycled, so "this pid is alive" is not the same as "this is still our
+ * window" — without the check, a close could signal an unrelated process that
+ * happened to inherit the number.
+ */
+function commandLineOf(pid) {
+  // An empty answer means "could not determine", never "definitely not ours".
+  // Windows returns an empty CommandLine both for a pid that no longer exists
+  // and for one we lack rights to inspect; reading that as a mismatch would
+  // refuse to close a real window we simply cannot see into.
+  const orNull = (text) => {
+    const trimmed = (text || '').trim();
+    return trimmed ? text : null;
+  };
+
+  if (process.platform === 'linux') {
+    try {
+      return orNull(fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' '));
+    } catch {
+      return null;
+    }
+  }
+  if (process.platform === 'win32') {
+    // Slower than /proc, but a close happens rarely and signalling the wrong
+    // process is worse than a few hundred milliseconds.
+    try {
+      return orNull(execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `(Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}").CommandLine`,
+        ],
+        { encoding: 'utf8', timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] }
+      ));
+    } catch {
+      return null;
+    }
+  }
+  try {
+    return orNull(
+      execFileSync('ps', ['-o', 'args=', '-p', String(pid)], {
+        encoding: 'utf8',
+        timeout: 4000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Is this pid still the browser we launched for this profile?
+ *
+ * The profile directory is unique per feed and appears in the browser's own
+ * argv, which makes it a reliable marker. When the command line can't be read
+ * (Windows, or a permissions failure) this returns true rather than blocking a
+ * legitimate close — the pid check alone is the fallback, as before.
+ */
+function isOurProcess(pid, profileDir) {
+  if (!profileDir) return true;
+  const cmd = commandLineOf(pid);
+  if (cmd === null) return true;
+  return cmd.includes(profileDir);
+}
+
 function isAlive(pid) {
   if (!pid) return false;
   try {
@@ -58,16 +130,79 @@ function isAlive(pid) {
   return !isZombie(pid);
 }
 
+const LOCK_DIR = () => path.join(PATHS.root, '.state.lock');
+
+/**
+ * Serialize read-modify-write on state.json across processes.
+ *
+ * Hooks, the watcher and the reaper are separate processes that all rewrite
+ * this file. Without a lock, one reading before another writes silently drops
+ * the other's changes — and losing a window record means losing the only
+ * handle anything has for closing that window.
+ *
+ * mkdir is atomic on every platform we support. A lock older than the timeout
+ * is assumed to belong to a process that died holding it and is broken, so a
+ * crash can never wedge the tool permanently.
+ */
+function withLock(fn, { timeoutMs = 2000, staleMs = 10000 } = {}) {
+  ensureRoot();
+  const dir = LOCK_DIR();
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      fs.mkdirSync(dir);
+      break;
+    } catch (err) {
+      if (err.code !== 'EEXIST') break; // can't lock at all: proceed unlocked
+      let age = 0;
+      try {
+        age = Date.now() - fs.statSync(dir).mtimeMs;
+      } catch {
+        continue; // vanished between calls; try again
+      }
+      if (age > staleMs) {
+        log('state: breaking a stale lock');
+        try {
+          fs.rmdirSync(dir);
+        } catch {
+          /* someone else got there first */
+        }
+        continue;
+      }
+      if (Date.now() > deadline) {
+        log('state: lock wait timed out, proceeding without it');
+        break;
+      }
+      try {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15);
+      } catch {
+        /* no SharedArrayBuffer: spin */
+      }
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      fs.rmdirSync(dir);
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
 function getSession(sessionId) {
   return readState().sessions[sessionId] || null;
 }
 
 function updateSession(sessionId, patch) {
-  const state = readState();
-  const current = state.sessions[sessionId] || { sessionId };
-  state.sessions[sessionId] = { ...current, ...patch };
-  writeState(state);
-  return state.sessions[sessionId];
+  return withLock(() => {
+    const state = readState();
+    const current = state.sessions[sessionId] || { sessionId };
+    state.sessions[sessionId] = { ...current, ...patch };
+    writeState(state);
+    return state.sessions[sessionId];
+  });
 }
 
 /**
@@ -79,16 +214,18 @@ function updateSession(sessionId, patch) {
  * monotonic stopSeq so an in-flight open can notice it was superseded.
  */
 function markStopped(sessionId) {
-  const state = readState();
-  const current = state.sessions[sessionId] || {};
-  state.sessions[sessionId] = {
-    sessionId,
-    windows: [],
-    pendingToken: null,
-    stopSeq: (current.stopSeq || 0) + 1,
-  };
-  writeState(state);
-  return state.sessions[sessionId].stopSeq;
+  return withLock(() => {
+    const state = readState();
+    const current = state.sessions[sessionId] || {};
+    state.sessions[sessionId] = {
+      sessionId,
+      windows: [],
+      pendingToken: null,
+      stopSeq: (current.stopSeq || 0) + 1,
+    };
+    writeState(state);
+    return state.sessions[sessionId].stopSeq;
+  });
 }
 
 function stopSeqOf(sessionId) {
@@ -131,4 +268,7 @@ module.exports = {
   stopSeqOf,
   pruneState,
   isAlive,
+  isOurProcess,
+  commandLineOf,
+  withLock,
 };

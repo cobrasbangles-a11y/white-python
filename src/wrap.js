@@ -124,15 +124,42 @@ function wrap(argv, { config = readConfig(), idleSeconds = 0 } = {}) {
   process.on('exit', cleanup);
 
   return new Promise((resolve) => {
+    let settled = false;
     child.on('error', (err) => {
       cleanup();
       process.stderr.write(`white-python: could not run "${argv[0]}": ${err.message}\n`);
-      resolve(127);
+      if (!settled) {
+        settled = true;
+        resolve(127);
+      }
     });
-    child.on('close', (code, signal) => {
+    // 'exit' fires when the command itself ends; 'close' waits for its stdio
+    // pipes, which a surviving grandchild can hold open indefinitely. Closing
+    // the feeds must not wait on that, so clean up on whichever comes first
+    // and only resolve once, with a short grace period for output to flush.
+    const finish = (code, signal) => {
+      if (settled) return;
+      settled = true;
       cleanup();
+      // In --idle mode we hold the child's pipes. A grandchild that outlives
+      // the command keeps them open, and an open pipe keeps THIS process
+      // alive — so the wrapper would sit there long after the agent exited
+      // and the feeds had closed. Let them go once the command is done.
+      for (const stream of [child.stdout, child.stderr]) {
+        try {
+          stream?.destroy();
+        } catch {
+          /* already gone */
+        }
+      }
       resolve(signal ? 128 : code ?? 0);
+    };
+    child.on('exit', (code, signal) => {
+      cleanup();
+      const t = setTimeout(() => finish(code, signal), 2000);
+      t.unref?.();
     });
+    child.on('close', (code, signal) => finish(code, signal));
   });
 }
 
