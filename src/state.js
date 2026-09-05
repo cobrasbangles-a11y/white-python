@@ -57,9 +57,18 @@ function isZombie(pid) {
  * happened to inherit the number.
  */
 function commandLineOf(pid) {
+  // An empty answer means "could not determine", never "definitely not ours".
+  // Windows returns an empty CommandLine both for a pid that no longer exists
+  // and for one we lack rights to inspect; reading that as a mismatch would
+  // refuse to close a real window we simply cannot see into.
+  const orNull = (text) => {
+    const trimmed = (text || '').trim();
+    return trimmed ? text : null;
+  };
+
   if (process.platform === 'linux') {
     try {
-      return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ');
+      return orNull(fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' '));
     } catch {
       return null;
     }
@@ -68,7 +77,7 @@ function commandLineOf(pid) {
     // Slower than /proc, but a close happens rarely and signalling the wrong
     // process is worse than a few hundred milliseconds.
     try {
-      return execFileSync(
+      return orNull(execFileSync(
         'powershell.exe',
         [
           '-NoProfile',
@@ -77,17 +86,19 @@ function commandLineOf(pid) {
           `(Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}").CommandLine`,
         ],
         { encoding: 'utf8', timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] }
-      );
+      ));
     } catch {
       return null;
     }
   }
   try {
-    return execFileSync('ps', ['-o', 'args=', '-p', String(pid)], {
-      encoding: 'utf8',
-      timeout: 4000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    return orNull(
+      execFileSync('ps', ['-o', 'args=', '-p', String(pid)], {
+        encoding: 'utf8',
+        timeout: 4000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+    );
   } catch {
     return null;
   }
