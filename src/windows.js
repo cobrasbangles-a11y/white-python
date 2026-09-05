@@ -67,6 +67,20 @@ function openWindows({ sessionId, config = readConfig(), feeds, layout, reason =
   ensureRoot();
   fs.mkdirSync(PATHS.profiles, { recursive: true });
 
+  // The identity of this stretch, written BEFORE anything is spawned so a
+  // crash part-way through the loop still leaves a record to close against.
+  const openId = crypto.randomUUID();
+  state.updateSession(sessionId, {
+    sessionId,
+    windows: [],
+    openedAt: Date.now(),
+    openReason: reason,
+    pendingToken: null,
+    browser: browser.key,
+    openId,
+    stopSeq: state.stopSeqOf(sessionId),
+  });
+
   const opened = [];
   resolved.forEach((feed, index) => {
     const rect = rects[index];
@@ -91,22 +105,9 @@ function openWindows({ sessionId, config = readConfig(), feeds, layout, reason =
     if (browser.family === 'firefox') reposition(child.pid, rect);
 
     opened.push({ feed: feed.key, label: feed.label, pid: child.pid, rect, profileDir });
+    // Commit after every spawn, not once at the end.
+    state.updateSession(sessionId, { windows: [...opened] });
     log('open:', feed.key, 'pid', child.pid, 'at', `${rect.x},${rect.y} ${rect.width}x${rect.height}`);
-  });
-
-  // openId identifies this particular stretch. The reaper only closes if the
-  // id it was armed with is still current, so it can't take down a later
-  // stretch that happens to reuse the session.
-  const openId = crypto.randomUUID();
-  state.updateSession(sessionId, {
-    stopSeq: state.stopSeqOf(sessionId),
-    sessionId,
-    windows: opened,
-    openedAt: Date.now(),
-    openReason: reason,
-    pendingToken: null,
-    browser: browser.key,
-    openId,
   });
 
   const cap = Math.max(0, Number(config.maxOpenMs) || 0);
@@ -199,8 +200,14 @@ function signal(pid, sig) {
  * browser that ignored it stayed on screen while the record was thrown away,
  * leaving nothing able to try again.
  */
-function killPid(pid) {
+function killPid(pid, profileDir) {
   if (!state.isAlive(pid)) return false;
+  // A recycled pid belongs to somebody else now. Signalling it would kill an
+  // unrelated process, so treat it as already gone.
+  if (!state.isOurProcess(pid, profileDir)) {
+    log('close: pid', pid, 'is no longer our browser (recycled) - leaving it alone');
+    return false;
+  }
   signal(pid, 'SIGTERM');
   if (!state.isAlive(pid)) return true;
   sleepSync(400);
@@ -227,7 +234,7 @@ function closeWindows({ sessionId, reason = 'manual' } = {}) {
     let killedHere = 0;
     const survivors = [];
     for (const window of session.windows || []) {
-      if (killPid(window.pid)) {
+      if (killPid(window.pid, window.profileDir)) {
         killedHere += 1;
         log('close:', window.feed, 'pid', window.pid, 'reason', reason);
       } else if (state.isAlive(window.pid)) {

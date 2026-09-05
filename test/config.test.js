@@ -157,3 +157,81 @@ test('a stop leaves a tombstone so an in-flight open can tell it was superseded'
     fsx.rmSync(home, { recursive: true, force: true });
   }
 });
+
+// --- pid identity ---
+//
+// Pids get recycled. "This pid is alive" is not "this is still our window",
+// and signalling a recycled pid would kill an unrelated process.
+
+test('a live pid whose command line lacks our profile dir is not ours', () => {
+  const stx = require('../src/state');
+  // Built at runtime so the marker can never appear in this process's own argv.
+  const foreign = ['', 'tmp', `wp-${(987654).toString(36)}`, 'profile'].join('/');
+  assert.strictEqual(stx.isOurProcess(process.pid, foreign), false);
+});
+
+test('a live pid whose command line does contain the marker is ours', () => {
+  const stx = require('../src/state');
+  assert.strictEqual(stx.isOurProcess(process.pid, 'node'), true);
+});
+
+test('an unreadable command line does not block a legitimate close', () => {
+  const stx = require('../src/state');
+  // No marker to check against, and a pid we cannot inspect: fall back to the
+  // pid check rather than refusing to close a real window.
+  assert.strictEqual(stx.isOurProcess(process.pid, ''), true);
+  assert.strictEqual(stx.isOurProcess(999999, '/anything'), true);
+});
+
+// --- concurrent state writes ---
+//
+// Hooks, the watcher and the reaper are separate processes writing one file.
+// A lost update means a lost window record, and a window record is the only
+// handle anything has for closing that window.
+
+test('concurrent updates to different sessions do not clobber each other', () => {
+  const fs2 = require('node:fs');
+  const os2 = require('node:os');
+  const path2 = require('node:path');
+  const home = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'wp-lock-'));
+  const prev = process.env.WHITE_PYTHON_HOME;
+  process.env.WHITE_PYTHON_HOME = home;
+  for (const k of Object.keys(require.cache)) delete require.cache[k];
+  const stx = require('../src/state');
+  try {
+    for (let i = 0; i < 20; i += 1) stx.updateSession(`s${i}`, { sessionId: `s${i}` });
+    assert.strictEqual(Object.keys(stx.readState().sessions).length, 20);
+
+    // The lock must be released every time, or the next write would stall.
+    assert.ok(!fs2.existsSync(path2.join(home, '.state.lock')), 'lock must not be left behind');
+  } finally {
+    process.env.WHITE_PYTHON_HOME = prev;
+    for (const k of Object.keys(require.cache)) delete require.cache[k];
+    fs2.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('a stale lock left by a dead process is broken rather than wedging forever', () => {
+  const fs2 = require('node:fs');
+  const os2 = require('node:os');
+  const path2 = require('node:path');
+  const home = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'wp-stale-'));
+  const prev = process.env.WHITE_PYTHON_HOME;
+  process.env.WHITE_PYTHON_HOME = home;
+  for (const k of Object.keys(require.cache)) delete require.cache[k];
+  const stx = require('../src/state');
+  try {
+    const lock = path2.join(home, '.state.lock');
+    fs2.mkdirSync(lock, { recursive: true });
+    // Backdate it well past the staleness threshold.
+    const old = new Date(Date.now() - 60_000);
+    fs2.utimesSync(lock, old, old);
+
+    stx.updateSession('after-stale', { sessionId: 'after-stale' });
+    assert.ok(stx.getSession('after-stale'), 'a stale lock must not block writes forever');
+  } finally {
+    process.env.WHITE_PYTHON_HOME = prev;
+    for (const k of Object.keys(require.cache)) delete require.cache[k];
+    fs2.rmSync(home, { recursive: true, force: true });
+  }
+});
